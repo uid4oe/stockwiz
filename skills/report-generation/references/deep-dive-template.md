@@ -200,6 +200,8 @@ Compact case bodies are **one sentence each** — typically the Headline from th
 
 ### How to pick the "key insight"
 
+> **Non-determinism note.** The key-insight selection is explicitly the most **non-deterministic** output in the report. Two runs on the same ticker may legitimately pick different insights if multiple heuristics apply. This is a deliberate trade-off: an LLM-curated insight is more useful than a deterministic one ("pick the largest metric by magnitude") because the LLM can factor in context the heuristic can't. The cost is reduced reproducibility — if the user cares about stable insights across runs, they should save the session workspace and reference it directly rather than expecting subsequent runs to match. Every other output in stockwiz (numbers, citations, sections) IS reproducible; the insight picking is the one exception.
+
 The report-writer reads `analysis/fundamental.md` and `analysis/sentiment.md` and picks **one** most striking observation that a reader who is unfamiliar with the stock would find surprising or defining. Heuristics in priority order:
 
 1. **Anomalous quality metric**: if ROIC, ROE, or FCF margin is in the top 1% of all US equities (usually means >50% ROIC, >50% ROE, >40% FCF margin), say so with specifics

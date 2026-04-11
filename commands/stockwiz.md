@@ -59,7 +59,7 @@ Write the initial `$SESSION_DIR/meta.json`:
   "ticker": "<TICKER>",
   "mode": "full",
   "horizon": "<HORIZON>",
-  "commandVersion": "0.3.0",
+  "commandVersion": "0.3.1",
   "createdAt": "<ISO 8601 with offset>",
   "status": "started",
   "stages": [],
@@ -101,9 +101,23 @@ Use the `Task` tool to invoke the `deep-researcher` subagent. Pass it this promp
 > SESSION_DIR: <absolute path to SESSION_DIR>
 > MODE: full
 >
-> This is a Phase 1.5 run. Fetch the 6 Phase 1.5 sources per the source-extraction skill, in order: SEC EDGAR (curl + JSON APIs), Finviz (WebFetch), Stockanalysis (curl + lynx), Yahoo Finance (curl + quoteSummary JSON API), Simply Wall Street (WebSearch + curl + lynx), Seeking Alpha (curl + lynx). Each source's reference file prescribes the exact tool and URLs — use those. Do not substitute WebFetch for curl on gated sources (SEC, Yahoo) — that's why Phase 1 failed. Follow the source-extraction/SKILL.md rate limits and failure detection rules. Write each fetched source to SESSION_DIR/raw/ per the file output convention and update SESSION_DIR/meta.json.sources after each fetch.
+> This is a Phase 2.5 run. Fetch the 10 Phase 2.5 sources per the source-extraction skill, in this order:
+>   1. SEC EDGAR (curl + SEC JSON APIs) — fatal if this fails
+>   2. Finviz (WebFetch)
+>   3. Stockanalysis.com (curl + lynx) — 5Y financials
+>   4. Macrotrends (WebSearch + curl + lynx) — 10-20Y deep cycle history
+>   5. Yahoo Finance (curl + quoteSummary JSON API)
+>   6. Google Finance + Google News RSS (curl + RSS + lynx) — news layer
+>   7. Simply Wall Street (WebSearch + curl + lynx)
+>   8. Seeking Alpha (curl + lynx) — public sections only
+>   9. Zacks (curl + lynx) — best-effort, fail fast on Cloudflare
+>   10. Reddit (curl + .json endpoints for r/stocks, r/wallstreetbets, r/investing)
 >
-> SEC EDGAR is the only fatal source — if it fails, stop fetching and set meta.json.status to "failed". All other source failures are non-fatal.
+> Each source's reference file under skills/source-extraction/references/ prescribes the exact tool, URLs, extraction targets, and failure mode detection — follow them. Do NOT substitute WebFetch for curl on gated sources (SEC, Yahoo, Stockanalysis, Macrotrends, Google, SWS, SA, Zacks, Reddit). Finviz is the only WebFetch source in Phase 2.5.
+>
+> SEC EDGAR is the only fatal source. If SEC fails, stop fetching and set meta.json.status to "failed". All other source failures (Zacks Cloudflare, Yahoo rate limit, Reddit 429, etc.) are non-fatal — continue to the next source. Zacks and Reddit are explicitly best-effort; do not retry challenges.
+>
+> Write each fetched source to SESSION_DIR/raw/ per the file output convention and update SESSION_DIR/meta.json.sources after each fetch. Use the slug conventions from source-extraction/SKILL.md (sec-edgar-10k.md, finviz-snapshot.md, stockanalysis.md, macrotrends.md, yahoo-fundamentals.md, google-finance.md, simply-wall-street.md, seeking-alpha.md, zacks-snapshot.md, reddit.md).
 >
 > Return a compact summary (≤300 words) with succeeded sources, failed sources + reasons, absolute file paths, and any cross-source sanity flags. Do NOT include raw content in your return.
 
@@ -117,7 +131,7 @@ Wait for the subagent to return. Read its summary.
    { "stage": "deep-researcher", "startedAt": "...", "endedAt": "...", "status": "ok", "succeeded": N, "failed": M }
    ```
 3. **If SEC EDGAR failed** (check `meta.json.sources["sec-edgar"].status == "failed"`), jump to Step 11 (fatal error). SEC is the ground-truth source — without it, no thesis.
-4. **If fewer than 3 sources succeeded in total**, also jump to Step 11 — there's not enough data to build a credible Phase 1.5 thesis even with the non-fatal sources intact.
+4. **If fewer than 3 sources succeeded in total**, also jump to Step 13 — there's not enough data to build a credible Phase 2.5 thesis even with the non-fatal sources intact.
 5. Otherwise, mark stage 1 complete in TodoWrite and proceed. It is fine (and expected) that some of SWS, SA, Yahoo may have failed — the thesis can still be built from the remaining sources.
 
 ## Step 7 — Stage 2: Run four analysis skills
@@ -270,17 +284,31 @@ Use the `Task` tool to invoke the `report-writer` subagent. Pass:
 > Generate a stockwiz HTML artifact for session <SESSION_DIR>.
 >
 > SESSION_DIR: <absolute path>
-> TEMPLATE: deep-dive
+> TEMPLATE: deep-dive (v0.3 insights-first)
 >
-> This is a Phase 2 run. The session has raw/ files for up to 6 sources, analysis/ files (fundamental, sentiment, peer-comp, risk, devils-advocate) from the analysis skills and devils-advocate subagent, and a thesis.md (possibly including an Adjustments After Stress Test section from the reconcile step).
+> This is a Phase 2.5 run. The session has raw/ files for up to 10 sources (SEC EDGAR, Finviz, Stockanalysis, Macrotrends, Yahoo, Google Finance + Google News RSS, Simply Wall Street, Seeking Alpha, Zacks, Reddit), analysis/ files (fundamental, sentiment, peer-comp, risk, devils-advocate) from the four analysis skills and devils-advocate subagent, and a thesis.md (possibly with an Adjustments After Stress Test section from the reconcile step).
 >
-> Follow the deep-dive template reference at skills/report-generation/references/deep-dive-template.md, using the full Phase 2 section set: hero, snapshot, three cases (hash-shuffled), kill switches, Fundamentals (from analysis/fundamental.md), Sentiment (from analysis/sentiment.md), Peers (from analysis/peer-comp.md), Risk (from analysis/risk.md), Assumption Ledger (from fundamental.md's ledger section), Unknowns, Sources, Adversarial Appendix (from analysis/devils-advocate.md), Disclaimer.
+> **Use the v0.3 insights-first template.** This means:
 >
-> Before rendering each Phase 2 section, check whether the corresponding analysis file exists and is non-empty. If any file is missing or is a failure stub, render a thin fallback from raw/ files directly per the deep-dive-template graceful-degradation rule. Record per-section fidelity (full / thin / placeholder) in your return summary.
+> 1. **First, run Step 5 of your SKILL.md — curate the TL;DR atoms** BEFORE composing HTML:
+>    - Key insight: ONE most striking observation picked from analysis/fundamental.md and analysis/sentiment.md using the heuristic list in deep-dive-template.md (anomalous quality metric / step-change growth / capital-structure surprise / margin inflection / historical outlier / SWS extreme)
+>    - Closest kill switch: the kill switch from thesis.md with the smallest margin of safety, with current/trigger/margin stats
+>    - Biggest unknown: the most material item from thesis.md § Unknowns, one sentence
 >
-> Run the compliance pass per skills/report-generation/references/compliance-rules.md before writing. Remember the Phase 2 exemptions: "sell-side", "buy-side", and any text inside `stockwiz-disclaimer` class are NOT rewritten. Analyst distribution labels ("Strong Buy" etc) and Yahoo recommendationKey strings MUST be wrapped in `<q>` tags. SWS risks list bullets should be wrapped in `<q>` tags when reproduced verbatim.
+> 2. Compose the HTML in the v0.3 section order per deep-dive-template.md:
+>    - **Above the fold** (always visible): hero → key metrics strip → TL;DR panel (compact three cases hash-shuffled + three callouts for insight/kill-switch/unknown)
+>    - **Below the fold** (native <details>/<summary>, no JavaScript): Three Cases (full, open by default) → Kill Switches → Fundamentals → Sentiment → Peers → Risk → Assumption Ledger → Unknowns → Sources → Adversarial Pass
+>    - **Always visible at bottom**: Disclaimer footer, NOT inside a <details>
 >
-> Return a compact summary with file path, byte count, sections present (full/thin/placeholder per section), compliance rewrites applied, stripped sentences, and sanity check results.
+> 3. For each <details> section, produce a one-line abstract in the <summary> so readers can decide what to expand. Use the abstract formulas from Step 6.5 of your SKILL.md.
+>
+> 4. The compact TL;DR cases and the full Three Cases details section MUST use the SAME hash-shuffled order (FNV-1a hash of ticker mod 6).
+>
+> Before rendering each below-the-fold section, check whether the corresponding analysis file exists and is non-empty. If any file is missing or is a failure stub, render a thin fallback from raw/ files directly per the deep-dive-template graceful-degradation rule. Record per-section fidelity (full / thin / placeholder) in your return summary.
+>
+> Run the compliance pass per skills/report-generation/references/compliance-rules.md before writing. Exemptions (Phase 2.5): "sell-side", "buy-side", and any text inside `stockwiz-disclaimer` class are NOT rewritten. Analyst distribution labels ("Strong Buy" etc), Yahoo `recommendationKey` strings, Zacks Rank text labels, SA Quant Rating labels, SWS risks list bullets, Reddit post titles, and Google News headlines MUST be wrapped in `<q>` tags when reproduced verbatim.
+>
+> Return a compact summary with file path, byte count, curated TL;DR atoms (the three atoms you picked), sections present (full/thin/placeholder per below-the-fold section), compliance rewrites applied, stripped sentences, and sanity check results.
 
 Wait for the subagent to return.
 
@@ -359,11 +387,11 @@ If any fatal error occurs (deep-researcher returned zero successes, SEC EDGAR un
 
 - **Ticker that doesn't exist.** SEC EDGAR (via curl + `company_tickers.json`) will not find the ticker in the mapping file. deep-researcher marks the source failed with reason `ticker-not-found-at-sec`. This is fatal — jump to Step 13 with message: "No SEC filings found for <TICKER>. Verify it is a US-listed equity."
 
-- **Non-US filer (20-F only).** In Phase 1.5 we try to extract whatever structured data is available from SEC (many FPIs file some XBRL facts) and flag the source with a note. The orchestrator proceeds if any data was recovered, else treats it as a fatal SEC failure.
+- **Non-US filer (20-F only).** We try to extract whatever structured XBRL data is available from SEC (many FPIs file some facts) and flag the source with a note. The orchestrator proceeds if any data was recovered, else treats it as a fatal SEC failure.
 
 - **lynx not installed.** Stockanalysis, SWS, and SA reference files all prefer lynx for HTML→text conversion. If lynx is missing, deep-researcher falls back to Read-with-limit on the raw HTML file. This is slower and less clean but still functional. The deep-researcher's Step 2.5 prerequisite check notes the missing tool; the agent's summary should mention it so the user knows why certain extractions are thinner than they could be.
 
-- **curl not installed.** Hard dependency for Phase 1.5. deep-researcher's Step 2.5 aborts with `curl-not-installed`. User needs to install curl (should be present on every macOS and Linux system by default).
+- **curl not installed.** Hard dependency since Phase 1.5 and throughout Phase 2.5. deep-researcher's Step 2.5 aborts with `curl-not-installed`. User needs to install curl (should be present on every macOS and Linux system by default).
 
 - **SEC company_tickers.json fetch fails on first run.** The cache doesn't exist yet. If the fetch fails with a 403 (UA issue) or network error, treat as fatal SEC failure and jump to Step 13 — no CIK lookup means no SEC at all.
 

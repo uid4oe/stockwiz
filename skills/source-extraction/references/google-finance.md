@@ -29,6 +29,13 @@ https://news.google.com/rss/search?q=%22{TICKER}%22+stock&hl=en-US&gl=US&ceid=US
 - `gl=US` — geography
 - `ceid=US:en` — country:language pair (Google's convention)
 
+**Special-character tickers (BRK.B, BF.B, JW.A, etc).** Tickers containing `.` or `-` don't play well with Google News's tokenizer inside quoted search. Two strategies:
+
+1. **Preferred**: use the company name instead of the ticker. For Berkshire Hathaway Class B, query `"Berkshire Hathaway"` instead of `"BRK.B"`. Get the company name from `raw/sec-edgar-10k.md` after SEC succeeds — SEC always has the legal entity name.
+2. **Fallback**: strip the punctuation and quote the base ticker. For `BRK.B` query `"BRK" stock`, understanding that you'll get Class A and Class B news undifferentiated.
+
+Document which strategy you used in the raw file's frontmatter notes so downstream knows the news may be class-undifferentiated.
+
 Alternative search: if you have the company name, you can use the name instead of ticker quote — sometimes gives better results for small-caps where the ticker is ambiguous:
 
 ```

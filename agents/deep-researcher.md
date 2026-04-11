@@ -115,7 +115,7 @@ For each source in the plan, in order. The fetch mechanics differ by source — 
 
 - **Stockanalysis (curl + lynx):** 3 curl calls per `references/stockanalysis.md` (overview, financials, statistics). Pipe each through `lynx -stdin -dump -width=140`.
 
-- **Macrotrends (WebSearch + curl + lynx):** First resolve the company slug via `WebSearch` with `site:macrotrends.net {TICKER} revenue`. Then 4 curl calls to revenue/net-income/gross-profit/free-cash-flow pages, each piped through lynx. See `references/macrotrends.md`. **Phase 2.5 value: 10+ years of historical data for cycle context.**
+- **Macrotrends (WebSearch + curl + lynx):** First check the slug cache at `~/.claude/stockwiz/cache/macrotrends-slugs.json`. Structure: `{ "<TICKER>": "<company-slug>", ... }` — e.g. `{"NVDA": "nvidia", "AAPL": "apple"}`. If the cache doesn't exist, create it as `{}`. If the ticker is in the cache, **skip WebSearch** and reuse the cached slug. Otherwise, resolve via `WebSearch` with `site:macrotrends.net {TICKER} revenue`, extract the slug from the top result URL, **write the new `(ticker, slug)` pair back to the cache file** (read-modify-write pattern), and proceed. Then 4 curl calls to revenue/net-income/gross-profit/free-cash-flow pages, each piped through lynx. See `references/macrotrends.md`. **Phase 2.5 value: 10+ years of historical data for cycle context.**
 
 - **Yahoo Finance (curl + cookies + JSON API):** 2-3 curl calls per `references/yahoo-finance.md`. First call is a throwaway to `finance.yahoo.com/quote/{ticker}` with `-c cookie_jar` to get the consent cookie. Second call is `query1.finance.yahoo.com/v10/finance/quoteSummary/...` with `-b cookie_jar` to get the JSON. Clean up the cookie jar when done.
 

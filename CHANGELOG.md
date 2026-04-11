@@ -2,6 +2,53 @@
 
 All notable changes to stockwiz are documented in this file.
 
+## [0.3.1] — 2026-04-11
+
+### Phase 2.5 fix pass — critical bugs found in self-review
+
+A critical review of 0.3.0 surfaced three bugs that would have broken Phase 2.5 at runtime, plus several quality issues worth fixing before a test run. All items from the self-review are addressed.
+
+**Critical bugs fixed**
+
+- **Orchestrator's deep-researcher Task prompt was still saying "Phase 1.5, 6 sources"** (commands/stockwiz.md line ~104). The commandVersion had been bumped but the prompt text was never updated. Would have caused the deep-researcher to fetch only the original 6 Phase 1.5 sources — the four new Phase 2.5 references (Google News RSS, Macrotrends, Zacks, Reddit) would never have been consulted. **Fixed**: prompt now explicitly enumerates all 10 Phase 2.5 sources with their tools and ordering, plus the Phase 2.5 slug conventions.
+
+- **Four analysis skills had zero references to the new Phase 2.5 sources.** fundamental-analysis, sentiment-synthesis, peer-comparison, and risk-screen were all written for the 6 Phase 1.5 sources and nothing knew to consume the new raw/ files. Even if deep-researcher fetched them, the analysis layer would have ignored them. **Fixed**:
+  - `sentiment-synthesis` now reads `raw/google-finance.md` (Google News RSS) as the primary news layer, `raw/reddit.md` for retail contrarian signal at weight 0.2 with an explicit anti-confirmation rule at extremes, and `raw/zacks-snapshot.md` for Zacks Rank + Style Scores. Updated weighting rubric with wire-service vs opinion-publisher split. Added a Publisher Distribution section and an explicit cross-source agreement check in Analyst Positioning.
+  - `fundamental-analysis` now reads `raw/macrotrends.md` for 10-20Y cycle context, with an explicit preference for Macrotrends over Stockanalysis in the Growth section. Added cycle-framing instruction: compare current growth to long-run mean (e.g. "2.9σ above mean → cyclical peak not structural new normal").
+  - `risk-screen` now reads `raw/macrotrends.md` for long-run drawdown profile. New subsection: worst historical annual FCF and net income declines over the 10+Y window, plus a cycle characterization (secular growth / cyclical / turnaround).
+  - `peer-comparison` unchanged — SWS competitor snowflakes remain the Phase 2.5 peer source.
+
+- **Orchestrator's report-writer Task prompt still said "Phase 2, 6 sources"** and didn't mention v0.3 insights-first template or the TL;DR atom curation. **Fixed**: prompt now explicitly requires running Step 5 (curate TL;DR atoms) before composition, enumerates the v0.3 section ordering, specifies the `<details>` abstract formulas, and lists the Phase 2.5 compliance exemptions including new source labels (Zacks Rank, Reddit titles, Google News headlines).
+
+**Quality issues fixed**
+
+- **Duplicated `@media print` block** in base-styles.css (lines 658 and 682). Merged into a single block; the "belt and suspenders" redundant rules are now inside the main print media query.
+
+- **Zero `:focus-visible` styles** for keyboard accessibility. Added focus rings on `details > summary`, `a`, and `button` using the existing `--accent` token. Standard 2px outline with 3px offset for summary elements.
+
+- **Unknowns ordering in thesis-discipline was assumed but not enforced.** deep-dive-template.md said "the list is already prioritized by materiality (most material first)" but thesis-discipline's Unknowns section just said "bulleted list". **Fixed**: thesis-discipline now mandates ordering by materiality with four explicit ranking criteria (impact on dominant case / impact on assumption ledger / time horizon to resolution / cross-source asymmetry). The first item in the list must be the one with the largest downstream impact — this is what the TL;DR "Biggest unknown" callout picks.
+
+- **Key insight selection documented as non-deterministic by design.** Added an explicit note at the top of the "How to pick the key insight" section in deep-dive-template.md acknowledging that two runs may pick different insights when multiple heuristics apply, explaining why this is a deliberate trade-off (LLM context-aware curation vs deterministic magnitude-picking), and noting that every other stockwiz output remains reproducible — the insight is the only exception.
+
+- **Compact case headlines now have a character budget.** thesis-discipline's Bull/Base/Bear case structure now includes an optional `**Compact headline.**` field (≤100 characters) that should be produced when the main Headline exceeds 140 characters. The report-writer's TL;DR compact cards use the Compact form when present, the main Headline otherwise.
+
+**Papercuts fixed**
+
+- **Reddit JSON-body 429 handling.** Reddit sometimes returns HTTP 200 with body `{"error": 429}` or `{"message": "Too Many Requests"}` instead of an HTTP 429 status. reddit.md now documents parsing both the HTTP status AND the JSON body before treating a response as usable, with example Python parsing code and the same `rate-limited` reason code for both cases.
+
+- **Google News RSS with dotted tickers** (BRK.B, BF.B, JW.A). google-finance.md now documents two strategies: (1) preferred, use the company name from SEC EDGAR instead of the ticker; (2) fallback, strip punctuation and accept class-undifferentiated news. Either way, the raw file frontmatter notes which strategy was used.
+
+- **Macrotrends slug cache is now self-populating** in Phase 2.5, not "Phase 3+". deep-researcher and macrotrends.md both document the read-modify-write pattern at `~/.claude/stockwiz/cache/macrotrends-slugs.json`. First run on a ticker pays a WebSearch; subsequent runs read from cache and skip WebSearch entirely.
+
+### Non-issues confirmed during review
+
+The following were checked and found to be OK — worth recording so they don't get re-flagged:
+
+- **CSS/template class consistency.** All 45 classes referenced in the v0.3 template are defined in base-styles.css; zero missing. A handful of CSS classes (`good`, `watch`, `mono`, `num`, `strong`) are utility classes kept intentionally.
+- **Above-the-fold vertical budget.** Rough computation: ~752px of content, comfortably under a typical 900px laptop viewport. The TL;DR fits in one screen on standard displays.
+- **Step numbering.** Both `commands/stockwiz.md` (1–13) and `agents/report-writer.md` (1–11) have consistent step numbering with no gaps after Phase 2.5.
+- **Self-contained CSS.** Zero `url(https://...)` references — confirmed no network dependencies.
+
 ## [0.3.0] — 2026-04-11
 
 ### Phase 2.5 — Insights-first report + four new sources

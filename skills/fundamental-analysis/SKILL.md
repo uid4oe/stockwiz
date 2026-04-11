@@ -32,16 +32,22 @@ You DO:
 
 Always check the frontmatter `status:` field before using a raw file. Skip files with `status: failed`.
 
-**Primary sources (usually present in Phase 1.5+):**
-- `raw/sec-edgar-10k.md` — ground-truth XBRL facts (revenue, net income, CFO, capex, long-term debt) across multiple fiscal years
-- `raw/stockanalysis.md` — 5Y historical income statement, statistics snapshot, ROIC/ROCE/WACC
-- `raw/finviz-snapshot.md` — current multiples, margins, ownership, short interest
+**Primary sources:**
+- `raw/sec-edgar-10k.md` — ground-truth XBRL facts (revenue, net income, CFO, capex, long-term debt) across multiple fiscal years. Authoritative for all Income Statement / Cash Flow / Balance Sheet numbers.
+- `raw/stockanalysis.md` — 5Y historical income statement, statistics snapshot, ROIC/ROCE/WACC, dense current-period ratios
+- `raw/macrotrends.md` — **10-20Y deep history** of revenue, net income, gross profit/margin, FCF/margin. **Use this for cycle context**: 5Y trends can miss full cycles in cyclical industries (semis, energy, materials, autos, banks). Macrotrends lets you answer "is this a cyclical peak?" with actual long-run data rather than guessing.
+- `raw/finviz-snapshot.md` — current multiples, margins, ownership, short interest, analyst recom numeric
 
 **Secondary sources:**
 - `raw/yahoo-fundamentals.md` — cross-check for multiples and margins (if Yahoo succeeded)
 - `raw/simply-wall-street.md` — SWS forecast metrics (1Y / 3Y growth forecasts, forecast ROE)
 
+**Fallback / cross-check:**
+- `raw/google-finance.md` — Google Finance quote SSR has a small set of metrics useful as a third-source cross-check when Finviz and stockanalysis disagree
+
 You may `Grep` raw files to find specific figures. Avoid bulk-reading large JSON files (`sec-concept-*.json`, `sec-submissions.json`) — they're the audit trail, not normal input.
+
+**Long-run cycle preference:** when you have both Stockanalysis (5Y) and Macrotrends (10-20Y), **use Macrotrends for the Growth section**. The 5Y view can hide the long-run mean. The Macrotrends table is the better substrate for computing true multi-cycle CAGRs and flagging cyclical peaks.
 
 ## Output structure
 
@@ -80,10 +86,13 @@ For each metric, note whether the trend is expanding, compressing, or stable, an
 
 ## Growth
 
-Show revenue and EPS trajectories with multi-year tables:
-- Revenue (annual, 3–5 years) with YoY growth rates
-- EPS (diluted, 3–5 years) with YoY growth rates
-- FCF (3–5 years) with growth rates
+Show revenue and EPS trajectories with multi-year tables. **Prefer Macrotrends (10-20Y) over Stockanalysis (5Y) when both are available** — the longer history is essential for cycle context.
+
+- Revenue — prefer Macrotrends 10-20Y with YoY growth rates; fall back to Stockanalysis 5Y if Macrotrends failed
+- EPS (diluted) — 5Y from Stockanalysis (Macrotrends has EPS on a separate page we don't fetch in Phase 2.5)
+- FCF — prefer Macrotrends 10-20Y FCF history; Stockanalysis has 5Y
+- **Long-run CAGR** (5Y and 10Y if available) — compute explicitly: `CAGR = (end/start)^(1/years) - 1`, show the arithmetic inline
+- **Cycle context**: if Macrotrends is present, note where current growth sits vs the long-run distribution. E.g. "FY2026 revenue growth of +65% vs the 2012-2024 mean of +22% → current is 2.9σ above the long-run mean, consistent with a cyclical peak not a structural new normal."
 - Forward growth expectations (from SWS or stockanalysis forecasts, explicitly cited)
 
 Distinguish trailing (what actually happened) from forward (what sources forecast). Never conflate them.

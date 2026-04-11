@@ -33,9 +33,11 @@ You DO:
 
 - `raw/finviz-snapshot.md` — beta, ATR (average true range), volatility (W/M), 52w range, RSI, short float
 - `raw/stockanalysis.md` — beta (5Y), 52w change, interest coverage ratio, debt ratios, WACC estimate
-- `raw/sec-edgar-10k.md` — long-term debt, total debt, cash position, CapEx trajectory
-- `raw/simply-wall-street.md` — SWS risks list (high-signal qualitative flags)
+- `raw/macrotrends.md` — **long-run history** (10-20Y) for max drawdown analysis, CapEx trajectory across cycles, FCF volatility over cycles. Use this for the Drawdown Profile section — a 5Y view can easily miss the largest historical drawdown.
+- `raw/sec-edgar-10k.md` — long-term debt, total debt, cash position, CapEx trajectory, recent 8-K material events (from submissions API)
+- `raw/simply-wall-street.md` — SWS risks list (high-signal qualitative flags, verbatim)
 - `raw/seeking-alpha.md` — article teasers can surface macro or competitive risk narratives
+- `raw/google-finance.md` — Google News RSS headlines may flag specific tail events (regulatory, litigation, geopolitical) the other sources don't show
 
 ## Output structure
 
@@ -60,15 +62,29 @@ Do NOT predict future volatility. Do NOT annualize to make the number feel scari
 
 ## Drawdown Profile
 
-- 52-week high: $XXX.XX [raw]
-- 52-week low: $XXX.XX [raw]
-- Current price: $XXX.XX [raw]
+### Short-term drawdown (1Y)
+
+- 52-week high: $XXX.XX [raw/finviz-snapshot.md]
+- 52-week low: $XXX.XX
+- Current price: $XXX.XX
 - % from 52w high: -X.X%
 - % from 52w low: +X.X%
 - 50-day moving average: $XXX.XX (% from current: +/-X.X%)
 - 200-day moving average: $XXX.XX (% from current: +/-X.X%)
 
-Describe the drawdown pattern: "NVDA is currently -11.1% from its 52-week high and +98.5% from its 52-week low, consistent with a stock in a multi-year uptrend with typical 10–15% pullbacks from highs." Again, describe; never predict.
+### Long-run drawdown context (when Macrotrends available)
+
+From Macrotrends' long-run data we can approximate the worst historical FCF and net-income drawdowns:
+- Worst annual FCF year-over-year decline in the 10+Y window: {X}% (FY{Y} → FY{Y+1}) [raw/macrotrends.md]
+- Worst annual net income year-over-year decline: {X}% (FY{Y} → FY{Y+1})
+- Number of years with negative net income in the 10+Y window: {N}
+- Cycle characterization: **secular growth** (zero or near-zero declines ever) / **cyclical** (periodic 30%+ declines) / **turnaround** (extended losses followed by recovery)
+
+The cycle characterization is a first-class output — a "secular growth" cycle pattern is a very different risk profile from a "cyclical" one even at the same current-moment volatility.
+
+Describe the drawdown pattern: "NVDA is currently -11.1% from its 52-week high and +98.5% from its 52-week low, short-term consistent with a multi-year uptrend. Long-run (15Y Macrotrends history): worst annual FCF decline was -53% (FY2023 → FY2022, the 2022 gaming-demand unwind), net income was positive every year but one. Cycle characterization: secular growth with one material FCF cycle every ~8 years."
+
+Again, describe; never predict.
 
 ## Correlation
 

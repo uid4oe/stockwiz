@@ -62,7 +62,43 @@ for sub in stocks wallstreetbets investing; do
 done
 ```
 
-Reddit's JSON endpoint returns HTTP 200 with a JSON body on success. On rate limit, it returns HTTP 429. On private/quarantined/deleted subreddits, you get a redirect or 403. On ticker with zero posts, you get an empty `children` array (still HTTP 200).
+Reddit's JSON endpoint usually returns HTTP 200 with a JSON body on success. **Rate limiting is tricky** — Reddit sometimes returns HTTP 429, but sometimes returns HTTP 200 with a JSON body containing `{"message": "Too Many Requests", "error": 429}` instead of the expected listing structure. **You must check both the HTTP status AND the parsed JSON body** before assuming the response is usable:
+
+```bash
+# Check HTTP status (curl -w prints it after body)
+curl -sS -A "$REDDIT_UA" -H "Accept: application/json" \
+  -w "\n__HTTP_STATUS__:%{http_code}\n" \
+  --max-time 20 "$URL" > /tmp/stockwiz-reddit-${sub}-${TICKER}.json
+```
+
+Then, in your JSON parser:
+
+```python
+import json
+with open(f'/tmp/stockwiz-reddit-{sub}-{TICKER}.json') as f:
+    raw = f.read()
+# Strip the appended status line if present
+if '__HTTP_STATUS__' in raw:
+    raw = raw.split('__HTTP_STATUS__')[0].strip()
+d = json.loads(raw)
+
+# Check for body-encoded rate limit (HTTP 200 but error payload)
+if isinstance(d, dict) and d.get('error') == 429:
+    # Reason: rate-limited (body)
+    ...
+    continue
+
+# Check for expected listing structure
+if 'data' not in d or 'children' not in d.get('data', {}):
+    # Reason: unexpected-shape (redirect, error, or format change)
+    ...
+    continue
+
+# Happy path
+posts = d['data']['children']
+```
+
+On private/quarantined/deleted subreddits, you get a redirect or 403. On ticker with zero posts, you get an empty `children` array (still HTTP 200, not an error — just mark as `no-posts`).
 
 ### Parsing
 
@@ -203,6 +239,7 @@ notes: low-weight source (0.2 in sentiment synthesis rubric); contrarian signal,
 | Condition | Reason | Action |
 |---|---|---|
 | HTTP 429 | `rate-limited` | Skip remaining subreddits this run, mark partial |
+| HTTP 200 with body `{"error": 429}` or `{"message": "Too Many Requests"}` | `rate-limited` (same reason code as HTTP 429) | Skip remaining subreddits this run, mark partial |
 | HTTP 403 on a sub | `sub-private-or-banned` | Skip that sub, continue others |
 | Empty `children` array | `no-posts` | Still mark ok but note low activity |
 | JSON parse error | `invalid-json` | Mark failed for that sub, continue others |

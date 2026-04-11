@@ -43,7 +43,21 @@ WebSearch: "site:macrotrends.net {TICKER} revenue"
 
 The first result should be the canonical `/stocks/charts/{TICKER}/{slug}/revenue` URL. Extract the `{slug}` component from it and reuse it for all subsequent page fetches.
 
-Alternative: hardcode a few well-known slugs for common tickers (NVDA → nvidia, AAPL → apple, etc) as a cache in `~/.claude/stockwiz/cache/macrotrends-slugs.json`. Phase 3+ can populate this cache; in Phase 2.5 we use WebSearch for unknown tickers and accept the 1-WebSearch cost.
+**Slug cache (Phase 2.5 — self-populating).** stockwiz maintains a persistent slug cache at `~/.claude/stockwiz/cache/macrotrends-slugs.json`. The deep-researcher checks the cache before issuing the WebSearch:
+
+1. Read `~/.claude/stockwiz/cache/macrotrends-slugs.json`. If it doesn't exist, treat as `{}`.
+2. If `cache[TICKER]` is set, use that slug directly — **skip WebSearch entirely**.
+3. If not, run the WebSearch (`site:macrotrends.net {TICKER} revenue`), extract the slug from the top result URL (it's the segment after `/charts/{TICKER}/`), and **write it back**:
+   ```python
+   cache = json.load(open(path)) if exists(path) else {}
+   cache[TICKER] = resolved_slug
+   json.dump(cache, open(path, 'w'), indent=2)
+   ```
+4. Then proceed to the 4 curl fetches.
+
+Over many sessions the cache fills up and the WebSearch cost drops to zero for previously-seen tickers. The cache file is tiny (one line per ticker) and doesn't need pruning.
+
+Handle write-races defensively: read-modify-write in a single turn. If another session is writing simultaneously, the worst case is one extra WebSearch — acceptable.
 
 ## Pages to fetch
 

@@ -44,7 +44,9 @@ When reading from analyses (Phase 2+), **prefer their content over re-deriving f
 
 ## Bull Case
 
-**Headline.** {One sentence that states the bull thesis as a claim, not a hope.}
+**Headline.** {One sentence that states the bull thesis as a claim, not a hope. TARGET: ≤180 characters including punctuation — if longer, produce a Compact Headline below.}
+
+**Compact headline.** {Optional, ≤100 characters. Used by the TL;DR panel in the HTML report. Required only if the main Headline exceeds 140 characters. The compact form should preserve the core claim; it's a tighter paraphrase, not a truncation.}
 
 **Supporting claims.**
 1. {Claim with a specific, citeable figure} [raw/source-file.md#anchor]
@@ -105,9 +107,23 @@ Good kill switches:
 
 ## Unknowns
 
-Bulleted list of things your analysis could not determine. Be specific. "I don't know what the management team is planning for the next 18 months" is worse than "I don't know whether the company's Q3 guidance includes the pending Apple contract — the 10-K does not disclose; Seeking Alpha and news sources did not clarify".
+**Ordered list (most material first) of things your analysis could not determine.** Ordering is mandatory: item 1 is the Unknown with the largest downstream impact on the thesis, item 2 the second-largest, etc. The report-writer picks item 1 for the "Biggest unknown" callout in the TL;DR panel, so getting this ordering right is load-bearing.
+
+**Materiality ranking criteria** (apply in order):
+1. **Impact on the dominant case.** An Unknown that would flip the Base case if resolved against the current framing is more material than one that would only adjust the Bear case.
+2. **Impact on the Assumption Ledger.** An Unknown that maps to a high-sensitivity row in `analysis/fundamental.md`'s Assumption Ledger is more material than one that maps to a low-sensitivity row.
+3. **Time horizon to resolution.** An Unknown that would be resolved by the next 10-Q is more actionable (and therefore more material) than one that resolves over 3 years.
+4. **Cross-source information asymmetry.** An Unknown where multiple sources explicitly flag "not disclosed" is more material than one where a single source didn't mention it.
+
+Be specific. "I don't know what the management team is planning for the next 18 months" is worse than "I don't know whether the company's Q3 guidance includes the pending Apple contract — the 10-K does not disclose; Seeking Alpha and news sources did not clarify".
 
 Unknowns are a first-class output. A thesis with zero unknowns is a thesis that is lying about its confidence.
+
+Format each item as a numbered bullet with the rank implied by position:
+
+1. **[MOST MATERIAL]** {one-sentence unknown, with which case it affects and the resolution horizon}
+2. {next most material}
+3. {...}
 ```
 
 ### Mode: `drift`

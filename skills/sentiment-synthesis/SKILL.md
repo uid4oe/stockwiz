@@ -20,16 +20,24 @@ Loaded by `/stockwiz` after `deep-researcher` and alongside `fundamental-analysi
 
 Check `status: ok` in each file's frontmatter. Skip failed sources.
 
-**Primary sources:**
-- `raw/simply-wall-street.md` — SWS risks list (high signal), rewards list, narrative verdict, competitor snowflakes for relative context
-- `raw/seeking-alpha.md` — SA Quant Rating + Factor Grades (when available — note SSR gap), Wall Street analyst distribution, article teaser titles as news proxy
+**Primary sources — news layer (Phase 2.5):**
+- `raw/google-finance.md` — **the news layer**. Google News RSS produces up to 20 recent headlines with publishers and publication dates. This is the single most important input for the news timeline and the publisher-distribution shape signal. Read the "Recent news" section and the "Publisher distribution" metric.
+
+**Primary sources — alternative view & proprietary ratings:**
+- `raw/simply-wall-street.md` — SWS risks list (high signal), rewards list, narrative verdict. The risks list is the single most valuable qualitative input; it typically surfaces 3-5 specific concerns analysts are watching.
+- `raw/seeking-alpha.md` — SA Quant Rating + Factor Grades (when SSR-available — note gap), Wall Street analyst distribution, article teaser titles as a secondary news proxy
+- `raw/zacks-snapshot.md` — **Zacks Rank (1-5) + Style Scores (VGM)** — unique proprietary ratings not covered by any other source. When Zacks succeeds, include its rank and style scores in the Analyst Positioning section. When it fails (Cloudflare), note in Unknowns.
+
+**Primary sources — insider / short / quantitative positioning:**
 - `raw/finviz-snapshot.md` — insider transactions (3-month % change), institutional transactions, short float, analyst recom numeric (1–5)
-- `raw/sec-edgar-10k.md` — most recent 8-K filings (material events), insider Form 4 filings via submissions API if available
+- `raw/sec-edgar-10k.md` — most recent 8-K filings (material events) from the submissions API section
+
+**Primary sources — retail contrarian:**
+- `raw/reddit.md` — **retail sentiment from r/stocks, r/wallstreetbets, r/investing**. Weight 0.2 (lowest in the rubric). Use for the contrarian-flag check: if r/wallstreetbets activity is `heavy` AND title lexicon is uniformly bullish (🚀, YOLO, to the moon), that's a historical near-term-consolidation signal and belongs in Conflicting Signals, NOT as a confirmation of a bull thesis.
 
 **Secondary sources:**
 - `raw/yahoo-fundamentals.md` — `recommendationKey` string and 5-tier analyst distribution (if Yahoo succeeded)
-- `raw/stockanalysis.md` — analyst distribution, next earnings date
-- Any `raw/news-*.md` files (Phase 2+ when news sources are wired)
+- `raw/stockanalysis.md` — analyst distribution, next earnings date, average price target
 
 ## Weighting rubric
 
@@ -39,17 +47,22 @@ Each source type gets a weight from 0.0 to 1.0, and a recency half-life of 30 da
 |---|---|---|
 | SEC 8-K material events | 1.0 | Ground truth — legally-mandated disclosures |
 | SEC Form 4 insider transactions | 0.9 | Dollar-weighted insider activity with dates |
-| Tier-1 news (WSJ, Bloomberg, Reuters, FT) | 0.8 | Reported, edited, fact-checked |
+| Google News RSS from wire services (Reuters, Bloomberg, WSJ, FT, AP) | 0.85 | Reported, edited, fact-checked; `<source>` element in RSS identifies publisher |
+| Finviz insider transactions | 0.8 | Hard $ signal with dates |
+| Tier-1 news (identified as Tier-1 via publisher in Google News RSS) | 0.8 | Same as above for non-wire Tier-1 |
+| Zacks Rank + Style Scores | 0.7 | Proprietary quant composite, widely referenced |
 | Analyst research reports (named firms) | 0.6 | Incentive-laden but well-sourced |
 | Simply Wall St risks list | 0.6 | Analytical composite, not raw sentiment |
-| Simply Wall St rewards list | 0.4 | Often marketing-tinted |
+| Google News RSS from opinion publishers (SA, Motley Fool, Benzinga, Zacks op-ed) | 0.5 | Lower weight reflects mixed-quality editorial |
 | Seeking Alpha Quant Rating + Factor Grades | 0.5 | Quantitative composite, not editorial |
-| Seeking Alpha article teasers (titles only) | 0.3 | Headline-level only; no body access |
 | Finviz analyst recom numeric | 0.5 | Composite of many sources |
-| Finviz insider transactions | 0.8 | Hard $ signal with dates |
-| Reddit (r/stocks, r/wsb, r/investing) | 0.2 | High noise; useful as a contrarian signal |
+| Simply Wall St rewards list | 0.4 | Often marketing-tinted |
+| Seeking Alpha article teasers (titles only) | 0.3 | Headline-level only; no body access |
+| Reddit (r/stocks, r/wsb, r/investing) | 0.2 | High noise; useful ONLY as a contrarian signal at extremes |
 
 Recency half-life: every signal is time-stamped. A 60-day-old signal has half the weight of a 1-day-old signal. If a signal isn't dated in the raw source, treat it as "as-of fetch time" and note that assumption.
+
+**Publisher distribution shape signal** (from Google News RSS): compute the share of wire-service headlines (Reuters/Bloomberg/WSJ/FT/AP) vs opinion-publisher headlines (SA/Benzinga/Fool) in the 20-item capture. A wire-heavy distribution (>60% wire) signals "something is happening that wire services are reporting" — earnings, M&A, regulatory, macro. An opinion-heavy distribution signals "retail narrative cycle" — momentum, meme, speculation. Note the shape in the Net Sentiment Read paragraph; do NOT assign it a numeric score.
 
 ## Output structure
 
@@ -66,16 +79,34 @@ A single paragraph framing the overall sentiment picture — NOT a single numeri
 
 ## Recency-Weighted News
 
-Vertical dated list of material news items from available sources. In Phase 2 this is limited to SEC 8-K filings and Seeking Alpha article titles — expand in Phase 3+ when news sources are wired.
+Vertical dated list of material news items. **Primary source in Phase 2.5 is Google News RSS** from `raw/google-finance.md`, typically 15-20 items. Supplement with SEC 8-K filings (from `raw/sec-edgar-10k.md` submissions metadata) and SA article teaser titles (from `raw/seeking-alpha.md`).
 
 Format:
-- **[YYYY-MM-DD]** (source, weight) — headline / event description. Citation.
+- **[YYYY-MM-DD]** (publisher, weight) — headline wrapped in `<q>` for compliance. Citation.
 
-Most recent items at the top. Items older than 90 days get trimmed unless materially unique.
+Most recent items at the top. Items older than 45 days get trimmed unless materially unique (e.g. an 8-K or a rating change). Aim for 8-12 items in the final list — not the full 20 from Google News, just the meaningful ones.
+
+**Tag each item's weight inline** per the rubric — readers need to see that a Reuters headline weighs more than a Seeking Alpha op-ed. Example:
+- **[2026-04-10]** (*Reuters*, weight 0.85) — <q>Nvidia stock hits fresh high on AI chip demand</q>
+- **[2026-04-10]** (*Seeking Alpha*, weight 0.5) — <q>NVIDIA: The Rerating Is Over, The Growth Story Isn't</q>
+
+## Publisher Distribution
+
+One-paragraph description of the wire-service vs opinion-publisher mix from Google News RSS. Example: "16 of 20 recent headlines are from opinion publishers (Seeking Alpha, Motley Fool, Benzinga) with only 4 from wire services (Reuters, Bloomberg) — this is a retail-narrative-cycle distribution, not a material-events distribution. Interpret subsequent signals accordingly." Do NOT reduce this to a single score; the shape is the signal.
 
 ## Social Signal
 
-SWS narrative verdict (verbatim, ready for `<q>` wrapping), SWS competitor framing, Reddit (if present — Phase 2+), SA article teaser frequency. Describe the shape of the conversation, not your opinion of it.
+Two parts: **analyst narrative** (from SWS verdict + SA teaser titles) and **retail sentiment** (from Reddit).
+
+**Analyst narrative:** SWS narrative verdict (verbatim inside `<q>`), SA article teaser frequency and title-lexicon observations. Describe the shape of the conversation, not your opinion of it.
+
+**Retail sentiment (Reddit, weight 0.2):** from `raw/reddit.md`, report for each subreddit:
+- Activity level: `quiet` / `normal` / `elevated` / `heavy` (per reddit.md's convention)
+- Total post count matching the ticker in last 30 days
+- Average score
+- Title-lexicon shape: `bullish` (🚀, YOLO, "to the moon", "calls"), `bearish` ("puts", "bagholders", "crash"), `mixed`, `analytical` — assess from titles only, never read post bodies
+
+**Contrarian-flag check:** if r/wallstreetbets activity is `heavy` AND title lexicon is uniformly bullish, note this as a contrarian flag in Conflicting Signals. Historically this correlates with near-term consolidation more often than continued uptrends. **Do NOT treat r/wsb enthusiasm as confirmation of a bull thesis** — it's specifically the opposite signal at extremes.
 
 ## Insider Activity
 
@@ -96,14 +127,21 @@ Cite every figure.
 
 ## Analyst Positioning
 
-- Number of analysts covering
-- Average price target (and % from current price)
-- Distribution (Strong Buy / Buy / Hold / Sell / Strong Sell) — **wrap each label in `<q>` tags when rendered**
-- Finviz analyst recom numeric (1.0–5.0, lower = more positive)
-- SA Quant Rating numeric (if available from SSR — note if client-side-only)
-- SA Factor Grades (if available — 5 letter grades on Valuation/Growth/Profitability/Momentum/Revisions)
+Six distinct composite ratings when all sources succeed. Present each with its source and neutral framing; wrap raw labels in `<q>` tags.
+
+- **Number of analysts covering** (from SA, stockanalysis, or Yahoo)
+- **Average price target** and % from current price
+- **Wall Street distribution**: <q>Strong Buy</q> N, <q>Buy</q> N, Hold N, <q>Sell</q> N, <q>Strong Sell</q> N
+- **Finviz analyst recom numeric** (1.0–5.0, lower = more positive)
+- **SA Quant Rating** numeric (if SSR-available — note if client-side-only and thus missing)
+- **SA Factor Grades** (if SSR-available — Valuation/Growth/Profitability/Momentum/Revisions)
+- **Zacks Rank** (1-5 integer from `raw/zacks-snapshot.md`, with label in `<q>` tags). Note: Zacks is best-effort; if the source was Cloudflare-blocked, note in Unknowns.
+- **Zacks Style Scores** (Value/Growth/Momentum/VGM — each A-F)
+- **Yahoo recommendationKey** raw string (wrapped in `<q>`, if Yahoo succeeded)
 
 Frame in neutral analytical language. Never generate advisory text of your own — only reproduce source labels inside `<q>`.
+
+**Cross-source agreement check:** of the composite ratings available, do they agree or disagree? Example: "Finviz analyst recom 1.3 (~Strong Buy), SA Quant 4.75 (~Strong Buy), Zacks Rank 2 (<q>Buy</q>), Wall Street 32/48 at <q>Strong Buy</q> — four sources align on the positive end. Alignment is itself a signal (consensus is well-informed OR consensus is herded; either is useful context)."
 
 ## Conflicting Signals
 
