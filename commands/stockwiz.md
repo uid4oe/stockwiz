@@ -59,7 +59,7 @@ Write the initial `$SESSION_DIR/meta.json`:
   "ticker": "<TICKER>",
   "mode": "full",
   "horizon": "<HORIZON>",
-  "commandVersion": "0.1.1",
+  "commandVersion": "0.2.0",
   "createdAt": "<ISO 8601 with offset>",
   "status": "started",
   "stages": [],
@@ -78,13 +78,15 @@ Use `TodoWrite` to create the pipeline stages. This gives the user visibility in
 
 ```
 1. Gather data from public sources (deep-researcher)
-2. Synthesize thesis (thesis-discipline skill)
-3. Adversarial stress test (devils-advocate — Phase 2+)
-4. Generate HTML report (report-writer)
-5. Finalize session metadata
+2. Run four analysis skills (fundamental, sentiment, peer-comp, risk)
+3. Synthesize thesis (thesis-discipline full mode)
+4. Adversarial stress test (devils-advocate)
+5. Reconcile thesis with adversarial pass (thesis-discipline reconcile mode)
+6. Generate HTML report (report-writer)
+7. Finalize session metadata
 ```
 
-Phase 1.5 note: the thesis-discipline skill runs, but analysis skills (fundamental-analysis, sentiment-synthesis, peer-comparison, risk-screen) are Phase 2. In Phase 1.5, the thesis is built directly from the 6 raw source files with placeholder analysis sections in the HTML.
+Phase 2: all four analysis skills run sequentially in the main context before thesis synthesis. The devils-advocate subagent runs in an isolated Task context after thesis synthesis. The thesis-discipline skill is invoked twice — once in `full` mode to synthesize, once in `reconcile` mode to merge devils-advocate feedback.
 
 Mark stage 1 as in_progress.
 
@@ -118,63 +120,150 @@ Wait for the subagent to return. Read its summary.
 4. **If fewer than 3 sources succeeded in total**, also jump to Step 11 — there's not enough data to build a credible Phase 1.5 thesis even with the non-fatal sources intact.
 5. Otherwise, mark stage 1 complete in TodoWrite and proceed. It is fine (and expected) that some of SWS, SA, Yahoo may have failed — the thesis can still be built from the remaining sources.
 
-## Step 7 — Stage 2: Synthesize thesis with thesis-discipline
+## Step 7 — Stage 2: Run four analysis skills
 
-In Phase 1.5, we skip the four analysis skills (fundamental, sentiment, peer, risk — those are Phase 2) and go directly from raw data to the thesis. The thesis-discipline skill will read raw files directly and produce the best thesis it can with the available data.
+Load each analysis skill in sequence and invoke it per its SKILL.md instructions. Each skill reads specific files from `SESSION_DIR/raw/` and writes its output to `SESSION_DIR/analysis/<name>.md`. They run sequentially because they're skills in the main context (not subagents) — parallelism would require wrapping each in a Task.
 
-Load the `thesis-discipline` skill (read `${CLAUDE_PLUGIN_ROOT}/skills/thesis-discipline/SKILL.md`) and follow its `full` mode instructions. In Phase 1.5, the inputs are whichever of these succeeded:
+Before starting each analysis, check which raw sources succeeded by reading `meta.json.sources`. Skip any file with `status: failed`.
 
-- `$SESSION_DIR/raw/sec-edgar-10k.md` (always present — SEC failure is fatal, so if we got here it's `ok`)
-- `$SESSION_DIR/raw/finviz-snapshot.md`
-- `$SESSION_DIR/raw/stockanalysis.md`
-- `$SESSION_DIR/raw/yahoo-fundamentals.md`
-- `$SESSION_DIR/raw/simply-wall-street.md`
-- `$SESSION_DIR/raw/seeking-alpha.md`
+### Stage 2a — fundamental-analysis
 
-Check each file's frontmatter for `status: ok` before including it in the thesis inputs. Skip files with `status: failed`.
+Load `${CLAUDE_PLUGIN_ROOT}/skills/fundamental-analysis/SKILL.md`. Follow its instructions to read from:
+- `raw/sec-edgar-10k.md` (XBRL facts)
+- `raw/stockanalysis.md` (5Y history + statistics)
+- `raw/finviz-snapshot.md` (current multiples)
+- `raw/yahoo-fundamentals.md` (cross-check, if status ok)
 
-For Phase 1.5, the SWS risks list and SA factor grades are particularly valuable — they're where "alternative view" signal comes from. The thesis-discipline skill should incorporate them into the bear case disconfirmers and the sentiment-related claims in the bull/base cases, respectively.
+Write `analysis/fundamental.md` per the skill's output structure (Snapshot / Valuation Framing / Quality / Growth / Capital Structure / Ownership / Assumption Ledger / Unknowns).
 
-Produce `$SESSION_DIR/thesis.md` with the mandatory sections from the skill:
+Append a stage entry to `meta.json.stages`.
 
-```markdown
-# <TICKER> — <Company Name> — Investment Thesis
+### Stage 2b — sentiment-synthesis
 
+Load `${CLAUDE_PLUGIN_ROOT}/skills/sentiment-synthesis/SKILL.md`. Follow its instructions to read from:
+- `raw/simply-wall-street.md` (risks list, rewards, narrative — primary signal)
+- `raw/seeking-alpha.md` (factor grades if present; article teasers)
+- `raw/finviz-snapshot.md` (insider txns, short, analyst recom)
+- `raw/sec-edgar-10k.md` (recent 8-K for material events)
+- `raw/yahoo-fundamentals.md` (recommendationKey if present)
+
+Write `analysis/sentiment.md` per the skill's output structure. Preserve source labels verbatim for later `<q>` wrapping in the report.
+
+Append a stage entry.
+
+### Stage 2c — peer-comparison
+
+Load `${CLAUDE_PLUGIN_ROOT}/skills/peer-comparison/SKILL.md`. Follow its instructions. In Phase 2, peers come from `raw/simply-wall-street.md` competitor snowflakes (free context — SWS typically includes 2–3 peers with their own scores).
+
+Write `analysis/peer-comp.md`. If no peer data is available (SWS failed or didn't provide competitors), write a minimal file noting the limitation and move on.
+
+Append a stage entry.
+
+### Stage 2d — risk-screen
+
+Load `${CLAUDE_PLUGIN_ROOT}/skills/risk-screen/SKILL.md`. Follow its instructions to read from:
+- `raw/finviz-snapshot.md` (beta, ATR, volatility, 52w range, short)
+- `raw/stockanalysis.md` (5Y beta, interest coverage, debt ratios)
+- `raw/sec-edgar-10k.md` (debt position)
+- `raw/simply-wall-street.md` (SWS risks as tail risks)
+
+Write `analysis/risk.md` per the skill's output structure.
+
+Append a stage entry. Mark stage 2 complete in TodoWrite.
+
+**If any analysis skill fails** (e.g. its primary raw inputs are all `status: failed`), write a minimal stub `analysis/<name>.md` noting the failure and continue. Downstream stages will render thin fallbacks. A single analysis skill failure is not fatal.
+
+## Step 8 — Stage 3: Synthesize thesis with thesis-discipline (full mode)
+
+Load the `thesis-discipline` skill (read `${CLAUDE_PLUGIN_ROOT}/skills/thesis-discipline/SKILL.md`) and follow its `full` mode instructions.
+
+**Phase 2 inputs** (preferred — from Stage 2 outputs):
+- `$SESSION_DIR/analysis/fundamental.md`
+- `$SESSION_DIR/analysis/sentiment.md`
+- `$SESSION_DIR/analysis/peer-comp.md`
+- `$SESSION_DIR/analysis/risk.md`
+
+Check each file for non-empty content (not just file existence — the analysis skills may have written stub files on failure). For any file that is missing or is a failure stub, fall back to reading the corresponding raw files directly per the skill's fallback mode.
+
+Write `$SESSION_DIR/thesis.md` with the mandatory sections from the skill:
+
+```
 ## Bull Case
-
 ## Base Case
-
 ## Bear Case
-
 ## Explicit Disconfirmers
-
 ## Kill Switches
-
 ## Unknowns
 ```
 
-Key rules you must enforce:
+Key rules the skill enforces:
 
-- Every claim has a citation to a `raw/` file
+- Every claim has a citation to an `analysis/` or `raw/` file
 - Base case is its own scenario, not a midpoint
 - Kill switches are measurable (specific threshold + time window + source)
-- Unknowns is first-class — in Phase 1 with only 3 sources, there will be many unknowns; that's fine and expected
+- Unknowns is first-class — when analyses flagged limitations, those become Unknowns here
 
-Append a stage entry for thesis synthesis. Mark stage 2 complete.
+Append a stage entry. Mark stage 3 complete.
 
-## Step 8 — Stage 3: Devils-advocate pass (Phase 2+)
+## Step 9 — Stage 4: Devils-advocate adversarial pass
 
-**Phase 1: skip this stage.** The devils-advocate subagent doesn't exist until Phase 2. Write a stage entry noting it was skipped:
+Use the `Task` tool to invoke the `devils-advocate` subagent. Pass it this prompt:
 
+> Stress-test a stockwiz investment thesis as an isolated adversarial pass.
+>
+> Input mode: A (thesis.md)
+> Thesis file: <absolute path to SESSION_DIR/thesis.md>
+> SESSION_DIR: <absolute path>
+>
+> Read ONLY thesis.md. Do NOT read raw/ files — your anchoring protection depends on seeing only the conclusion, not the bull-framed source data. You may run up to 3 fresh WebFetch/WebSearch calls to find specific disconfirming evidence for your weakest-claim attacks, but do not use them for general research.
+>
+> Produce SESSION_DIR/analysis/devils-advocate.md with the mandatory sections per agents/devils-advocate.md: Weakest Claims (ranked), The Opposing Narrative, Missing Counter-Evidence, Alternative Interpretations, Kill Switch Adequacy, Fresh Evidence Fetched.
+>
+> Return a ≤300-word summary: how many weakest claims you identified, what rank-1 was, how many kill switches you rated as inadequate, how many fresh fetches you used.
+
+Wait for the subagent to return. Read its summary.
+
+Append a stage entry:
 ```json
-{ "stage": "devils-advocate", "status": "skipped", "reason": "phase-2-feature" }
+{
+  "stage": "devils-advocate",
+  "startedAt": "...",
+  "endedAt": "...",
+  "status": "ok",
+  "weakestClaimsFound": N,
+  "killSwitchesInadequate": M,
+  "freshFetches": K
+}
 ```
 
-Mark stage 3 as completed in the todo list with a note: "Adversarial pass (Phase 2) — skipped in walking skeleton".
+If the devils-advocate subagent fails (returns an error or the output file is missing), log it as failed with reason and continue — the report-writer will render a placeholder for the adversarial appendix. Non-fatal; the user can retry with `/stockwiz-bear <TICKER>` afterward.
 
-**Phase 2+ behavior (for future reference, not to implement now):** delegate to the `devils-advocate` subagent via Task, passing only the path to `thesis.md`. It returns after writing `analysis/devils-advocate.md`. If material issues were raised, append a `## Adjustments After Stress Test` section to `thesis.md` (append-only, don't overwrite claims).
+Mark stage 4 complete.
 
-## Step 9 — Stage 4: Generate HTML report
+## Step 10 — Stage 5: Reconcile thesis with adversarial pass
+
+Load the `thesis-discipline` skill again, this time in `reconcile` mode (per the skill's SKILL.md). Pass it both:
+
+- `SESSION_DIR/thesis.md` (the existing thesis from Stage 3)
+- `SESSION_DIR/analysis/devils-advocate.md` (the adversarial pass from Stage 4)
+
+The skill will append a `## Adjustments After Stress Test` section to `thesis.md` if devils-advocate raised material issues. The original bull/base/bear claims are preserved verbatim — adjustments live in their own section as an audit trail of what the stress test changed.
+
+**If devils-advocate was skipped or failed in Stage 4**, skip this reconcile step. thesis.md remains as Stage 3 wrote it.
+
+Append a stage entry:
+```json
+{
+  "stage": "thesis-reconcile",
+  "status": "ok",
+  "adjustmentsApplied": N,
+  "killSwitchesTightened": M
+}
+```
+
+Mark stage 5 complete.
+
+## Step 11 — Stage 6: Generate HTML report
 
 Use the `Task` tool to invoke the `report-writer` subagent. Pass:
 
@@ -183,29 +272,29 @@ Use the `Task` tool to invoke the `report-writer` subagent. Pass:
 > SESSION_DIR: <absolute path>
 > TEMPLATE: deep-dive
 >
-> This is a Phase 1.5 run. The session has raw/ files for up to 6 sources (SEC EDGAR, Finviz, Stockanalysis, Yahoo Finance, Simply Wall Street, Seeking Alpha — check each file's frontmatter for status: ok before using it) and a synthesized thesis.md. No analysis/ files yet (Phase 2) and no devils-advocate appendix (Phase 2). Follow the deep-dive template reference at skills/report-generation/references/deep-dive-template.md, using the Phase 1.5 section set: hero, snapshot, three cases, kill switches, Phase 2 placeholders for fundamentals/sentiment/peers/risk/assumption-ledger, unknowns, sources, disclaimer.
+> This is a Phase 2 run. The session has raw/ files for up to 6 sources, analysis/ files (fundamental, sentiment, peer-comp, risk, devils-advocate) from the analysis skills and devils-advocate subagent, and a thesis.md (possibly including an Adjustments After Stress Test section from the reconcile step).
 >
-> The snapshot strip cards should draw from whichever sources succeeded — prefer Finviz for most fields, Yahoo quoteSummary JSON for enterprise value and forward P/E, SEC for the big balance-sheet numbers. The sources section at the bottom must list all successful sources with their fetched_at timestamps.
+> Follow the deep-dive template reference at skills/report-generation/references/deep-dive-template.md, using the full Phase 2 section set: hero, snapshot, three cases (hash-shuffled), kill switches, Fundamentals (from analysis/fundamental.md), Sentiment (from analysis/sentiment.md), Peers (from analysis/peer-comp.md), Risk (from analysis/risk.md), Assumption Ledger (from fundamental.md's ledger section), Unknowns, Sources, Adversarial Appendix (from analysis/devils-advocate.md), Disclaimer.
 >
-> Pay special attention to SWS risks and SA factor grades if those sources succeeded — they're the Phase 1.5 signal uplift over Phase 1. SWS risks belong in the bear case or the Unknowns section; SA factor grades belong in the sentiment placeholder with a neutral-language framing.
+> Before rendering each Phase 2 section, check whether the corresponding analysis file exists and is non-empty. If any file is missing or is a failure stub, render a thin fallback from raw/ files directly per the deep-dive-template graceful-degradation rule. Record per-section fidelity (full / thin / placeholder) in your return summary.
 >
-> Run the compliance pass per skills/report-generation/references/compliance-rules.md before writing. Abort with error if the pass fails after 3 iterations. Remember that SA's "Strong Buy" label and Yahoo's `recommendationKey` string must be wrapped in <q> tags.
+> Run the compliance pass per skills/report-generation/references/compliance-rules.md before writing. Remember the Phase 2 exemptions: "sell-side", "buy-side", and any text inside `stockwiz-disclaimer` class are NOT rewritten. Analyst distribution labels ("Strong Buy" etc) and Yahoo recommendationKey strings MUST be wrapped in `<q>` tags. SWS risks list bullets should be wrapped in `<q>` tags when reproduced verbatim.
 >
-> Return a compact summary with file path, byte count, sections present, compliance rewrites applied, and sanity check results.
+> Return a compact summary with file path, byte count, sections present (full/thin/placeholder per section), compliance rewrites applied, stripped sentences, and sanity check results.
 
 Wait for the subagent to return.
 
 **If report-writer returned an error** (compliance failed, sanity check failed, write failed):
 1. Append a stage entry with `status: "failed"` and the error reason.
 2. Retry **once** with a refined prompt noting the specific issue.
-3. If still failing, jump to Step 11 (fatal error).
+3. If still failing, jump to Step 13 (fatal error).
 
 **On success:**
 1. Append a stage entry for report-writer with the adjustments it reported.
 2. Update `meta.json.reportPath = "report.html"`.
-3. Mark stage 4 complete.
+3. Mark stage 6 complete.
 
-## Step 10 — Finalize
+## Step 12 — Finalize
 
 Update `$SESSION_DIR/meta.json`:
 
@@ -218,7 +307,7 @@ Update `$SESSION_DIR/meta.json`:
 }
 ```
 
-Mark stage 5 complete in TodoWrite.
+Mark stage 7 complete in TodoWrite.
 
 Print the final assistant message to the user. It should include:
 
@@ -246,7 +335,7 @@ Print the final assistant message to the user. It should include:
 
 Do NOT auto-open the HTML file. The user should choose when to view it.
 
-## Step 11 — Fatal error handling
+## Step 13 — Fatal error handling
 
 If any fatal error occurs (deep-researcher returned zero successes, SEC EDGAR unreachable, report-writer failed twice, compliance pass unresolvable):
 
@@ -268,7 +357,7 @@ If any fatal error occurs (deep-researcher returned zero successes, SEC EDGAR un
 
 ## Edge cases
 
-- **Ticker that doesn't exist.** SEC EDGAR (via curl + `company_tickers.json`) will not find the ticker in the mapping file. deep-researcher marks the source failed with reason `ticker-not-found-at-sec`. This is fatal — jump to Step 11 with message: "No SEC filings found for <TICKER>. Verify it is a US-listed equity."
+- **Ticker that doesn't exist.** SEC EDGAR (via curl + `company_tickers.json`) will not find the ticker in the mapping file. deep-researcher marks the source failed with reason `ticker-not-found-at-sec`. This is fatal — jump to Step 13 with message: "No SEC filings found for <TICKER>. Verify it is a US-listed equity."
 
 - **Non-US filer (20-F only).** In Phase 1.5 we try to extract whatever structured data is available from SEC (many FPIs file some XBRL facts) and flag the source with a note. The orchestrator proceeds if any data was recovered, else treats it as a fatal SEC failure.
 
@@ -276,7 +365,11 @@ If any fatal error occurs (deep-researcher returned zero successes, SEC EDGAR un
 
 - **curl not installed.** Hard dependency for Phase 1.5. deep-researcher's Step 2.5 aborts with `curl-not-installed`. User needs to install curl (should be present on every macOS and Linux system by default).
 
-- **SEC company_tickers.json fetch fails on first run.** The cache doesn't exist yet. If the fetch fails with a 403 (UA issue) or network error, treat as fatal SEC failure and jump to Step 11 — no CIK lookup means no SEC at all.
+- **SEC company_tickers.json fetch fails on first run.** The cache doesn't exist yet. If the fetch fails with a 403 (UA issue) or network error, treat as fatal SEC failure and jump to Step 13 — no CIK lookup means no SEC at all.
+
+- **Analysis skill failure.** Any of the four analysis skills may write a stub file if its raw inputs are all failed. The thesis-discipline `full` mode handles this via its fallback mode (reads raw files directly). The report-writer renders a thin fallback for that section. Non-fatal at every stage.
+
+- **Devils-advocate failure.** If the Task call times out or the subagent returns an error, log it and skip the reconcile stage (Stage 5). The report-writer will render a placeholder for the Adversarial Appendix section noting the user can retry with `/stockwiz-bear`. Non-fatal.
 
 - **Cookie jar leaks.** Yahoo's fetch creates a cookie jar tempfile. It should be deleted after Yahoo finishes (success or failure). If you notice `/tmp/stockwiz-yahoo-cookies.*` files accumulating over many runs, that's a cleanup bug worth fixing.
 
@@ -288,6 +381,8 @@ If any fatal error occurs (deep-researcher returned zero successes, SEC EDGAR un
 
 ## What success looks like
 
-The user runs `/stockwiz NVDA`. They see a todo list updating as stages complete. They see a short progress message from deep-researcher ("SEC EDGAR ok via curl + JSON APIs; Finviz ok; Stockanalysis ok; Yahoo JSON API ok; SWS snowflake + 5 risks ok; Seeking Alpha quant + factor grades ok — 6 of 6"). They see a thesis synthesis note drawing on numeric data from SEC and Stockanalysis, on sentiment from SWS risks and SA factor grades, and on quick-look ratios from Finviz. They see a report-writer completion message noting the compliance pass rewrote two source labels into `<q>` tags. They get a final summary with three case headlines, a kill switch or two, and a pointer to the HTML file. They open `~/.claude/stockwiz/sessions/NVDA-*/report.html` in their browser, see a clean, disclaimer-footed research brief with three equal-weight columns, 6 sources listed in the bottom section, and SWS's risk list fleshing out the bear case. They come back to the chat and ask "what's the insider ownership?" — the main context uses Grep + Read to pull the answer from `raw/finviz-snapshot.md` with a citation, no re-fetch.
+The user runs `/stockwiz NVDA`. They see a todo list with seven stages. Stage 1 gathers 5–6 sources via deep-researcher. Stage 2 runs four analysis skills sequentially — fundamental extracts multi-year numbers and builds an assumption ledger, sentiment weighs SWS risks vs analyst distribution, peer-comp builds a comp table from SWS competitor snowflakes, risk-screen enumerates beta/drawdown/concentration/tail. Stage 3 synthesizes the thesis reading from the four analyses (not raw files directly). Stage 4 spawns a red-colored devils-advocate subagent in an isolated context; it reads only thesis.md, ranks the weakest claims, builds a coherent opposing narrative, and rewrites weak kill switches. Stage 5 appends an "Adjustments After Stress Test" section to thesis.md preserving the original claims verbatim. Stage 6 generates a 60–120KB HTML report with full Fundamentals, Sentiment, Peers, Risk, Assumption Ledger, and Adversarial Appendix sections. Stage 7 finalizes meta.json.
 
-That's the Phase 1.5 bar.
+The user opens `report.html` and sees a clean research brief with three equal-weight columns, a full fundamentals section with multi-year sparklines, an insider-activity grid, a peer comp table, a drawdown profile, an assumption ledger you can interrogate row-by-row, a full-width kill-switches row calibrated with margin-of-safety numbers, a red-highlighted adversarial appendix with ranked weakest claims and kill-switch rewrites, and a disclaimer footer that can't be removed. They come back to the chat and ask "what did devils-advocate say about the margin thesis?" — the main context Greps `analysis/devils-advocate.md` and answers with citation, no re-fetch.
+
+That's the Phase 2 bar.

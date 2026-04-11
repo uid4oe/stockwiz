@@ -45,10 +45,30 @@ Read:
 
 ### Step 4 — Read session content
 
-- Read `thesis.md` completely.
-- Read every file in `SESSION_DIR/analysis/` (if any Phase 1+ analyses ran).
-- Read `meta.json` for the ticker, timestamps, source success/failure, and horizon.
-- Use `Grep` on `SESSION_DIR/raw/` when you need a specific figure for citation — don't bulk-Read raw files unless the analyses are empty (Phase 1 fallback).
+- Read `thesis.md` completely (including any `## Adjustments After Stress Test` section appended by thesis-discipline reconcile step).
+- Read every file in `SESSION_DIR/analysis/`:
+  - `analysis/fundamental.md` (Phase 2+) — source for Fundamentals section
+  - `analysis/sentiment.md` (Phase 2+) — source for Sentiment section
+  - `analysis/peer-comp.md` (Phase 2+) — source for Peers section
+  - `analysis/risk.md` (Phase 2+) — source for Risk section
+  - `analysis/devils-advocate.md` (Phase 2+) — source for Adversarial Appendix
+- Read `meta.json` for the ticker, timestamps, source success/failure, horizon, and which stages ran.
+- Use `Grep` on `SESSION_DIR/raw/` when you need a specific figure for citation that isn't already summarized in an analysis file.
+
+### Step 4.5 — Per-section fidelity decision
+
+For each Phase 2 section, check whether the corresponding analysis file exists and has non-empty content:
+
+| Section | Analysis file | Fallback if missing |
+|---|---|---|
+| Fundamentals | `analysis/fundamental.md` | Thin version from `raw/finviz-snapshot.md` + `raw/stockanalysis.md` directly |
+| Sentiment | `analysis/sentiment.md` | Thin version from `raw/simply-wall-street.md` risks + `raw/finviz-snapshot.md` |
+| Peers | `analysis/peer-comp.md` | Thin version from `raw/simply-wall-street.md` competitor snowflakes |
+| Risk | `analysis/risk.md` | Thin version from `raw/finviz-snapshot.md` beta + 52w range |
+| Assumption Ledger | `analysis/fundamental.md` `## Assumption Ledger` | Placeholder note |
+| Adversarial | `analysis/devils-advocate.md` | Placeholder note: "Run /stockwiz-bear for an adversarial pass" |
+
+Record in your return summary which sections rendered `full`, `thin`, or `placeholder`.
 
 ### Step 5 — Compose the HTML
 
@@ -57,14 +77,18 @@ Follow the template reference section by section. For the deep-dive template:
 1. `<!DOCTYPE html>` preamble with `<head>`, `<title>`, optional Google Fonts `<link>`, inline `<style>` (base-styles.css + any frontend-design overrides)
 2. `<body><div class="stockwiz-container">`
 3. **Hero** — ticker, company name, base-case headline as tagline, current price, sparkline, generation meta
-4. **Snapshot strip** — 4–6 cards from Yahoo + Finviz data
-5. **Three cases** — Bull/Base/Bear in **deterministic-shuffled order** (hash of ticker mod 6, see deep-dive-template.md for the mapping). Equal visual weight.
+4. **Snapshot strip** — 4–6 cards from raw sources
+5. **Three cases** — Bull/Base/Bear in **deterministic-shuffled order** (hash of ticker mod 6). Equal visual weight.
 6. **Kill switches** — full-width section below the three cases
-7. **Fundamentals / Sentiment / Peers / Risk / Assumption ledger** — Phase 1 renders placeholders
-8. **Unknowns** — from thesis.md
-9. **Sources** — numbered list derived from `meta.json.sources` (include only `status: ok` entries), with fetch timestamps and URLs
-10. **Adversarial appendix** — Phase 2+, loads `analysis/devils-advocate.md`
-11. **Disclaimer** — load verbatim from `assets/disclaimer.html`, substitute `{version}` (from plugin.json), `{timestamp}` (ISO now), `{session-id}` (basename of SESSION_DIR)
+7. **Fundamentals** — full section from `analysis/fundamental.md` (per deep-dive-template.md section 5), or thin fallback
+8. **Sentiment** — full section from `analysis/sentiment.md`, or thin fallback. SWS risks and analyst distribution labels must be wrapped in `<q>` tags.
+9. **Peers** — full section from `analysis/peer-comp.md`, comp table with direction-of-goodness classes, or thin fallback
+10. **Risk** — full section from `analysis/risk.md`, or thin fallback
+11. **Assumption ledger** — table from `analysis/fundamental.md`'s `## Assumption Ledger` section
+12. **Unknowns** — from `thesis.md` `## Unknowns` section, equal visual weight to the bull case (not hidden)
+13. **Sources** — numbered list derived from `meta.json.sources` (include `status: ok` AND note `status: failed` with reasons), fetch timestamps and URLs
+14. **Adversarial appendix** — full text of `analysis/devils-advocate.md` rendered as HTML, clearly labeled as stress test
+15. **Disclaimer** — load verbatim from `assets/disclaimer.html`, substitute `{version}` (from plugin.json), `{timestamp}` (ISO now), `{session-id}` (basename of SESSION_DIR)
 
 ### Ticker-hash permutation for the three cases
 

@@ -14,8 +14,8 @@ All matches are **case-insensitive with word boundaries** (regex `\b...\b`).
 
 | # | Banned phrase | Rewrite | Notes |
 |---|---|---|---|
-| 1 | `buy` (imperative, not "buyback") | `consider` | Do not rewrite "buyback", "share buyback", "M&A buy" |
-| 2 | `sell` (imperative, not "sell-through" or "sales") | `re-evaluate` | Do not rewrite "sell-through", "sales" |
+| 1 | `buy` (imperative, not "buyback" / "buy-side" / "buyer") | `consider` | Do not rewrite "buyback", "share buyback", "M&A buy", "buy-side" (industry term for investment managers), "buyer" |
+| 2 | `sell` (imperative, not "sell-through", "sell-side", "sales", "seller") | `re-evaluate` | Do not rewrite "sell-through", "sell-side" (industry term for research desks / analysts), "sales", "seller" |
 | 3 | `recommend` / `recommendation` | `analysis suggests` / `analytical view` | |
 | 4 | `should buy` | `may consider` | |
 | 5 | `should sell` | `may re-evaluate` | |
@@ -65,11 +65,28 @@ The surrounding prose is compliance-checked, but the quoted text inside `<q>` is
 ## Edge cases the scanner must handle
 
 - **Word boundaries matter.** `\bbuy\b` matches "buy" but not "buyback" or "buyer".
+- **Hyphenated compounds create word boundaries.** The `-` character is a non-word character, so `\bsell\b` will match inside `sell-side`, and `\bbuy\b` will match inside `buy-side`. These are industry terms, not imperatives — **explicitly exempt them**. Before applying rule 1 or 2, check if the match is immediately followed by `-side` or preceded by `-side`; if so, skip it.
 - **Case-insensitive match, case-preserved rewrite.** If the source had "Buy", the rewrite should be "Consider" (capital C). Simpler to just lowercase rewrites and let context sort it.
 - **Compound phrases rewritten first.** Rule 4 (`should buy`) is matched before rule 1 (`buy`) so that "should buy" becomes "may consider" rather than "should consider".
 - **Inside HTML attributes.** Don't rewrite banned phrases that appear inside `alt=""`, `title=""`, `href=""`, or `<!-- comments -->` — these are structural, not content.
 - **Inside `<code>` or `<pre>`.** Exempt — likely a snippet of a URL or source marker.
 - **Inside footnote numbers.** The `<sup>` citations should not contain prose, so this is rare, but skip them defensively.
+- **Disclaimer footer boilerplate.** The `stockwiz-disclaimer` block contains the phrase "recommendation to buy, sell, or hold" as part of legally-required disclaimer language. This text is pre-approved and exempt — skip rewriting inside `class="stockwiz-disclaimer"` blocks.
+
+### Explicit exemption list (do NOT rewrite)
+
+These tokens look like banned phrases under a naive regex but are industry terminology or legally-mandated text:
+
+| Token | Why it's exempt |
+|---|---|
+| `sell-side` | Industry term for research desks and analysts at investment banks |
+| `buy-side` | Industry term for investment managers and asset allocators |
+| `buyback` / `share buyback` | Corporate action, not an imperative |
+| `buyer` / `seller` | Descriptive noun, not an imperative |
+| `sell-through` | Retail metric |
+| `sales` / `sales growth` | Revenue terminology |
+| `sold-out` / `sold out` | Inventory status |
+| Disclaimer footer contents | Legally-required boilerplate |
 
 ## Ordering
 

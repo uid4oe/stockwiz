@@ -1,7 +1,7 @@
 ---
 name: thesis-discipline
-description: This skill should be used when synthesizing equity analyses into a disciplined investment thesis with mandatory bull/base/bear cases, explicit disconfirmers, and measurable kill switches. It forces structure that prevents vague framings and supports honest revisit and drift checking. Supports three modes — full synthesis, drift check, and implicit-thesis extraction.
-version: 0.1.0
+description: This skill should be used when synthesizing equity analyses into a disciplined investment thesis with mandatory bull/base/bear cases, explicit disconfirmers, and measurable kill switches. It forces structure that prevents vague framings and supports honest revisit and drift checking. Supports four modes — full synthesis from analyses, drift check against prior thesis, implicit-thesis extraction for pivot, and reconcile (merging devils-advocate feedback into a prior thesis).
+version: 0.2.0
 ---
 
 # thesis-discipline
@@ -11,24 +11,29 @@ This skill exists because most investment theses are vague in exactly the ways t
 ## When to use
 
 You are called by:
-- `/stockwiz` (main command) in **full** mode after the four analysis skills have written their outputs
+- `/stockwiz` (main command) in **full** mode after the four analysis skills have written their outputs, and again in **reconcile** mode after devils-advocate has written its pass
 - `/stockwiz-thesis` in **full** mode after a reduced analysis pass
 - `/stockwiz-compare` in **relative** mode (3-bullet bull/bear/base per ticker)
 - `/stockwiz-revisit` in **drift** mode to compare a prior thesis to current state
 - `/stockwiz-pivot` in **implicit** mode to extract the latent thesis from an analysis
 
-## Three modes
+## Four modes
 
 ### Mode: `full`
 Synthesize a complete thesis from analysis files. Write `SESSION_DIR/thesis.md`.
 
-**Inputs you read:**
-- `SESSION_DIR/analysis/fundamental.md`
-- `SESSION_DIR/analysis/sentiment.md`
-- `SESSION_DIR/analysis/peer-comp.md`
-- `SESSION_DIR/analysis/risk.md`
-- Optionally `SESSION_DIR/analysis/macro.md` if present
-- Reference `SESSION_DIR/raw/*.md` by path for citations, but do not re-read them unless you need a specific figure
+**Phase 2+ inputs (preferred):**
+- `SESSION_DIR/analysis/fundamental.md` — from fundamental-analysis skill
+- `SESSION_DIR/analysis/sentiment.md` — from sentiment-synthesis skill
+- `SESSION_DIR/analysis/peer-comp.md` — from peer-comparison skill
+- `SESSION_DIR/analysis/risk.md` — from risk-screen skill
+- Optionally `SESSION_DIR/analysis/macro.md` if present (Phase 4+)
+- Reference `SESSION_DIR/raw/*.md` by path for citations, but do not re-read them unless you need a specific figure that isn't summarized in the analyses
+
+**Fallback input mode (Phase 1.5 or if analyses are absent):**
+If the analysis files are missing (e.g. a Phase 1.5 run that skipped the analysis skills), read directly from `SESSION_DIR/raw/` files. This is a degraded mode — note it in the thesis preamble: `*Generated in Phase 1.5 fallback mode — analyses skipped, synthesis direct from raw files.*`
+
+When reading from analyses (Phase 2+), **prefer their content over re-deriving from raw**. The analyses already did the hard work of dating figures, computing derived metrics, and noting source disagreements. Your job is synthesis across the four analytical lenses, not re-computation.
 
 **Output structure (mandatory).** `thesis.md` must contain exactly these sections in this order:
 
@@ -148,6 +153,49 @@ One of:
 - "Re-evaluate — kill switch {name} has triggered; consider re-running /stockwiz-bear for a fresh adversarial view"
 - "Stale — prior thesis is {N} days old; consider a fresh /stockwiz run"
 ```
+
+### Mode: `reconcile`
+After `devils-advocate` writes its stress-test pass, merge its feedback into the existing `thesis.md` **without overwriting or softening the original claims**. Append, don't rewrite.
+
+**Inputs:**
+- `SESSION_DIR/thesis.md` — the existing thesis (from `full` mode)
+- `SESSION_DIR/analysis/devils-advocate.md` — the adversarial pass
+
+**What you do:**
+
+1. Read both files.
+
+2. Identify which of devils-advocate's "Weakest Claims" are materially correct — meaning the devils-advocate found a specific inverse condition that is already visible in source data, not a rhetorical attack. A "material" finding has:
+   - A specific counter-data point (not just a contrary interpretation)
+   - Citation to a source file or a fresh fetch URL
+   - A measurable implication
+
+3. Identify which of devils-advocate's kill-switch-adequacy verdicts are material. Verdicts of `vague`, `slow`, `missing-trigger`, or `wrong-metric` on a kill switch, WITH a concrete rewrite proposed, are material.
+
+4. Append to `thesis.md` a new section `## Adjustments After Stress Test` (just before `## Unknowns`). Structure:
+   ```markdown
+   ## Adjustments After Stress Test
+
+   The devils-advocate pass raised N material issues, summarized below. The original claims above are preserved verbatim; adjustments are listed here separately so the reader can see the delta.
+
+   ### Material weakening of claims
+
+   - **Bull claim #2** (gross margin defensibility): devils-advocate notes that the FY2025 → FY2026 gross margin step-down of 3.92pp already exists in stockanalysis.com's own data cited by the claim itself. The bull claim's certainty on "pricing power is converting into durable FCF" is reduced accordingly — a 6.07pp margin of safety to the kill switch (71.07% vs 65% threshold) is narrower than the bull framing implied.
+
+   ### Kill switch tightening
+
+   - **Original:** "Gross margin below 65% for two consecutive quarters"
+     **Rewrite:** "Gross margin below 67% in any single quarter OR below 65% for two consecutive quarters"
+     **Reason:** devils-advocate noted that a single-quarter sub-67% print would already invalidate the "glide path" framing and should not wait for a second confirming quarter.
+
+   ### Unresolved adversarial points
+
+   - devils-advocate raised {issue X} but it was not adopted because {specific reason — "no counter-data cited" or "attack is a reinterpretation not a contradiction"}
+   ```
+
+5. Do NOT modify the bull/base/bear case bodies directly. The reader should be able to see the original thesis and the adjustments side by side — that's the audit trail.
+
+6. If devils-advocate raised no material issues (all verdicts `adequate`, all weakest claims just alternative interpretations), write a short `## Adjustments After Stress Test` noting that the adversarial pass found the thesis internally consistent, and move on.
 
 ### Mode: `implicit`
 Extract the latent thesis from an existing analysis. Write `SESSION_DIR/analysis/implicit-thesis.md`. Short and sharp — this is used by `peer-scout` to find alternative expressions.
