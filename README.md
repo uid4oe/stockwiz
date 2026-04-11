@@ -96,6 +96,12 @@ Every HTML report embeds a disclaimer footer. Every report also passes a complia
 - `/stockwiz-monitor` uses the scheduled-tasks MCP. Scheduled runs only fire while Claude Code is idle.
 - Numbers are preserved verbatim from sources. When sources disagree, stockwiz records the disagreement rather than silently picking one.
 
+## Author
+
+**uid4oe** — [oggy@uid4oe.dev](mailto:oggy@uid4oe.dev)
+
+Repo: [github.com/uid4oe/stockwiz](https://github.com/uid4oe/stockwiz)
+
 ## License
 
-MIT. See `LICENSE`.
+MIT. Copyright (c) 2026 uid4oe. See [`LICENSE`](LICENSE).
