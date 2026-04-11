@@ -59,7 +59,7 @@ Write the initial `$SESSION_DIR/meta.json`:
   "ticker": "<TICKER>",
   "mode": "full",
   "horizon": "<HORIZON>",
-  "commandVersion": "0.2.0",
+  "commandVersion": "0.3.0",
   "createdAt": "<ISO 8601 with offset>",
   "status": "started",
   "stages": [],

@@ -70,29 +70,108 @@ For each Phase 2 section, check whether the corresponding analysis file exists a
 
 Record in your return summary which sections rendered `full`, `thin`, or `placeholder`.
 
-### Step 5 — Compose the HTML
+### Step 5 — Curate the TL;DR atoms BEFORE composing HTML
 
-Follow the template reference section by section. For the deep-dive template:
+This is the most important step of the Phase 2.5 redesign. Before writing any HTML, compute three curated atoms for the above-the-fold TL;DR panel:
 
-1. `<!DOCTYPE html>` preamble with `<head>`, `<title>`, optional Google Fonts `<link>`, inline `<style>` (base-styles.css + any frontend-design overrides)
+#### Atom A — Key insight
+
+Read `analysis/fundamental.md` and `analysis/sentiment.md`. Pick **one** most striking observation that a reader unfamiliar with the ticker would find surprising or defining. Apply the heuristic from `deep-dive-template.md` § "How to pick the key insight":
+
+1. Anomalous quality metric (ROIC > 50%, ROE > 50%, FCF margin > 40% → top-1% territory)
+2. Step-change in growth (revenue or EPS multiplied > 3× in 5 years)
+3. Capital-structure surprise (net cash > 10% of market cap)
+4. Margin trajectory inflection (> 3pp gross margin change in most recent year)
+5. Historical outlier (5Y CAGR > 40%)
+6. Alternative-view standout (SWS Future 6/6 or Value 1/6)
+
+Write the insight as **one sentence** that:
+- Cites a specific number from a specific source file
+- Avoids advisory language (no "impressive", "strong", "cheap")
+- Ends with a forward-looking check if appropriate ("FY2027 readings will show whether this is durable")
+
+If the fundamental or sentiment files are missing (Phase 1.5 fallback), pick from raw data directly — Finviz ROIC, Stockanalysis 5Y CAGRs, or SWS Snowflake extremes.
+
+#### Atom B — Closest kill switch
+
+Read `thesis.md` § Kill Switches. Each kill switch should have a current reading and a trigger threshold (the thesis-discipline skill enforces this in Phase 2+). Compute the margin between current and trigger for each:
+
+- For percentage metrics (gross margin, FCF margin, short float): margin in percentage points
+- For dollar metrics (cash, debt, target prices): margin as a percentage of current value
+- For ratio metrics (P/E, short ratio, D/E): margin as a percentage of current value
+
+Pick the kill switch with the **smallest margin of safety** (closest to triggering). If two are tied, pick the one with the earliest time window.
+
+Format as one sentence + a compact stats line:
+- Sentence: `"{Metric} {below|above} {threshold} {time window}"`
+- Stats: `"Current: {current value} · Trigger: {threshold} · Margin: {margin} to go"`
+
+If no kill switch has a computed margin (e.g. all are structural like "short float > 5%" without a current reading), pick the most specific and measurable one and note "margin not computed — see full list".
+
+#### Atom C — Biggest unknown
+
+Read `thesis.md` § Unknowns. The list is already prioritized by the thesis-discipline skill (most material first). Take the first item. If it's longer than one sentence, tighten to one sentence while preserving the specific thing that's unknown and why it matters. Cite the source file that would have had it if it existed.
+
+Example:
+- Original in thesis.md: "Customer concentration: the 10-K narrative section (business description, risk factors, MD&A) was not extracted in Phase 1.5. The degree of data-center revenue tied to the top 4 hyperscalers is material to the bear case but cannot be cited from current raw files."
+- TL;DR form: "Customer concentration of data-center revenue across the top 4 hyperscalers is not disclosed in current sources and materially affects the bear case."
+
+### Step 6 — Compose the HTML insights-first
+
+Follow the v0.3 template in `deep-dive-template.md`. Section order is:
+
+1. `<!DOCTYPE html>` preamble with `<head>`, `<title>`, optional Google Fonts `<link>`, inline `<style>` (base-styles.css)
 2. `<body><div class="stockwiz-container">`
-3. **Hero** — ticker, company name, base-case headline as tagline, current price, sparkline, generation meta
-4. **Snapshot strip** — 4–6 cards from raw sources
-5. **Three cases** — Bull/Base/Bear in **deterministic-shuffled order** (hash of ticker mod 6). Equal visual weight.
-6. **Kill switches** — full-width section below the three cases
-7. **Fundamentals** — full section from `analysis/fundamental.md` (per deep-dive-template.md section 5), or thin fallback
-8. **Sentiment** — full section from `analysis/sentiment.md`, or thin fallback. SWS risks and analyst distribution labels must be wrapped in `<q>` tags.
-9. **Peers** — full section from `analysis/peer-comp.md`, comp table with direction-of-goodness classes, or thin fallback
-10. **Risk** — full section from `analysis/risk.md`, or thin fallback
-11. **Assumption ledger** — table from `analysis/fundamental.md`'s `## Assumption Ledger` section
-12. **Unknowns** — from `thesis.md` `## Unknowns` section, equal visual weight to the bull case (not hidden)
-13. **Sources** — numbered list derived from `meta.json.sources` (include `status: ok` AND note `status: failed` with reasons), fetch timestamps and URLs
-14. **Adversarial appendix** — full text of `analysis/devils-advocate.md` rendered as HTML, clearly labeled as stress test
-15. **Disclaimer** — load verbatim from `assets/disclaimer.html`, substitute `{version}` (from plugin.json), `{timestamp}` (ISO now), `{session-id}` (basename of SESSION_DIR)
+
+**Above the fold (always visible):**
+
+3. **Hero** — ticker, company name, price, as-of, sector/industry. No sparkline, no tagline.
+4. **Key metrics strip** — 6 metrics in a single row with labels + tabular-numeric values
+5. **TL;DR panel** — compact three cases (one sentence each, hash-shuffled order) + three callouts (key insight, closest kill switch with margin bar, biggest unknown)
+
+**Below the fold (`<details>` / `<summary>`, progressive disclosure):**
+
+6. **Three Cases (full)** — `<details open>` — full bull/base/bear with supporting claims, disconfirmers, timelines. Same hash-shuffled order as the TL;DR compact cases.
+7. **Kill Switches** — all kill switches from thesis.md, sorted by margin of safety ascending (closest to trigger first). Each with current/trigger/margin.
+8. **Fundamentals** — from `analysis/fundamental.md`, including multi-year sparklines
+9. **Sentiment** — from `analysis/sentiment.md`, with SWS risks in `<q>` tags, analyst distribution in `<q>` tags, recent headlines timeline
+10. **Peers** — from `analysis/peer-comp.md`, comp table with direction-of-goodness classes, caveats
+11. **Risk** — from `analysis/risk.md`, volatility/drawdown/concentration/tail
+12. **Assumption Ledger** — table from `analysis/fundamental.md`'s Assumption Ledger section
+13. **Unknowns** — from `thesis.md` § Unknowns, full list (not just the one in the TL;DR)
+14. **Sources** — numbered list from `meta.json.sources`, including succeeded and failed with reasons, fetch timestamps
+15. **Adversarial Pass** — full text of `analysis/devils-advocate.md` rendered as HTML, with an italic intro paragraph explaining the adversarial protocol
+
+**Always visible at bottom:**
+
+16. **Disclaimer** — load verbatim from `${CLAUDE_PLUGIN_ROOT}/skills/report-generation/assets/disclaimer.html`, substitute `{version}` (from plugin.json), `{timestamp}` (ISO now), `{session-id}` (basename of SESSION_DIR). **NOT inside a `<details>` — always visible.**
+
+### Step 6.5 — Compute summary abstracts for each `<details>` section
+
+Every `<summary>` element has a one-line abstract that tells the reader what's inside without them having to expand. Compute these from the section content:
+
+| Section | Abstract formula |
+|---|---|
+| Three Cases | Always `"Full bull / base / bear with supporting claims, disconfirmers, and timelines."` |
+| Kill Switches | `"{N} measurable triggers, tightest is {metric} with {margin} to go."` |
+| Fundamentals | `"Revenue {growth YoY}, FCF margin {margin}, ROIC {roic}, net {cash|debt} {amount}."` |
+| Sentiment | `"{N} SWS risks flagged, {M} analysts covering, insider activity {net-buy|net-sell|flat}."` |
+| Peers | `"{N} peers via SWS competitor snowflakes, target {v}/6 value and {f}/6 future."` |
+| Risk | `"Beta {beta}, {pct} off 52w high, {n} concentration risks flagged."` |
+| Assumption Ledger | `"{N} forward-looking assumptions with source and sensitivity."` |
+| Unknowns | `"{N} items the analysis could not determine from available sources."` |
+| Sources | `"{ok}/{total} succeeded — {list of successful source slugs, comma-separated}."` |
+| Adversarial Pass | `"{N} weakest claims ranked, {M} kill switches tightened."` |
+
+These abstracts are scannable — a reader who has 60 seconds can read all ten abstracts and know what's below the fold without expanding a single section.
+
+### Step 7 — Hash-shuffled case ordering (unchanged from Phase 2)
+
+The three cases still render in deterministic-shuffled order per `deep-dive-template.md` § "How to pick…". Use the FNV-1a hash of the ticker mod 6 to pick a permutation. **Both the compact TL;DR cases AND the full Three Cases details section use the SAME order** — they must be visually consistent on the same report.
 
 ### Ticker-hash permutation for the three cases
 
-Compute a simple deterministic hash of the ticker to pick the case order. Any stable function works; the FNV-1a variant below is fine to describe as pseudocode and implement in your composition logic:
+Compute a simple deterministic hash of the ticker to pick the case order:
 
 ```
 hash = 2166136261
@@ -112,7 +191,7 @@ Permutations (index → order):
 
 Same ticker always gets the same order; different tickers differ. Anchoring is neutralized.
 
-### Step 6 — Compliance pass (MANDATORY, before writing)
+### Step 8 — Compliance pass (MANDATORY, before writing)
 
 Before writing the file to disk, run the compliance pass per `compliance-rules.md`:
 
@@ -126,11 +205,11 @@ Before writing the file to disk, run the compliance pass per `compliance-rules.m
 4. If after 3 iterations any banned phrase still exists outside `<q>`, **ABORT**. Return an error summary to the caller: `compliance pass failed after 3 iterations; banned phrases still present: [list]`. Do NOT write a non-compliant report to disk.
 5. Log every rewrite and every stripped sentence to `meta.json.stages`: read the current meta.json, find the stage entry for your run (or append one), add `adjustments: [...]` and `strippedSentences: [...]`, write it back.
 
-### Step 7 — Write the file
+### Step 9 — Write the file
 
 Write to `SESSION_DIR/report.html`.
 
-### Step 8 — Verify
+### Step 10 — Verify
 
 After writing, run sanity checks via Bash:
 
@@ -140,19 +219,27 @@ After writing, run sanity checks via Bash:
 - `grep -c 'stockwiz-disclaimer' SESSION_DIR/report.html` — should be ≥1 (the footer class is present).
 - `grep -iE '\b(buy|sell|recommend|guaranteed|risk-free)\b' SESSION_DIR/report.html` — scan for compliance leaks. Hits outside `<q>` tags indicate a compliance failure. If you find any, delete the file and return an error.
 
-### Step 9 — Return the summary
+### Step 11 — Return the summary
 
 Return to the caller:
 
 ```
 **Report written.** SESSION_DIR/report.html ({N} bytes)
 
-**Template.** deep-dive
-**Sections present.** hero, snapshot, three-cases, kill-switches, unknowns, sources, disclaimer
-**Sections placeholder.** fundamentals, sentiment, peers, risk, assumption-ledger (Phase 1)
-**Sections skipped.** (none)
-**Compliance.** {N} rewrites applied, {M} sentences stripped
-**Sanity checks.** file size, markers, compliance grep all passed
+**Template.** deep-dive (v0.3 insights-first)
+
+**TL;DR atoms curated.**
+- Key insight: "{one-sentence paraphrase}"
+- Closest kill switch: {metric}, margin of safety {X}
+- Biggest unknown: "{one-sentence paraphrase}"
+
+**Sections present (above fold).** hero, metrics-strip, tldr
+**Sections full below fold.** three-cases, kill-switches, {list of full analysis sections}
+**Sections thin below fold.** {list of thin fallback sections}
+**Sections placeholder.** {list, typically empty in Phase 2+}
+
+**Compliance.** {N} rewrites applied, {M} sentences stripped, {K} iterations
+**Sanity checks.** file size {n} bytes, markers valid, compliance grep clean
 ```
 
 ## Hard rules

@@ -32,7 +32,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/source-extraction/SKILL.md` to understand rat
 
 ### Step 2 — Build the fetch plan
 
-**MODE=full — Phase 1.5 sources (6 total):**
+**MODE=full — Phase 2.5 sources (10 total):**
 
 Fetch in this order. Each source uses the tool prescribed in its reference file — do not substitute WebFetch for curl or vice versa.
 
@@ -41,28 +41,31 @@ Fetch in this order. Each source uses the tool prescribed in its reference file 
 | 1 | **SEC EDGAR** | **Bash + curl** (JSON APIs) | `references/sec-edgar.md` |
 | 2 | **Finviz** | **WebFetch** | `references/finviz.md` |
 | 3 | **Stockanalysis.com** | **Bash + curl + lynx** | `references/stockanalysis.md` |
-| 4 | **Yahoo Finance** | **Bash + curl** (quoteSummary JSON API) | `references/yahoo-finance.md` |
-| 5 | **Simply Wall Street** | **WebSearch + Bash + curl + lynx** | `references/simply-wall-street.md` |
-| 6 | **Seeking Alpha** | **Bash + curl + lynx** | `references/seeking-alpha.md` |
+| 4 | **Macrotrends** | **WebSearch + Bash + curl + lynx** | `references/macrotrends.md` |
+| 5 | **Yahoo Finance** | **Bash + curl** (quoteSummary JSON API) | `references/yahoo-finance.md` |
+| 6 | **Google Finance + Google News RSS** | **Bash + curl** (RSS XML + lynx) | `references/google-finance.md` |
+| 7 | **Simply Wall Street** | **WebSearch + Bash + curl + lynx** | `references/simply-wall-street.md` |
+| 8 | **Seeking Alpha** | **Bash + curl + lynx** | `references/seeking-alpha.md` |
+| 9 | **Zacks** | **Bash + curl + lynx** (best-effort, fail fast on Cloudflare) | `references/zacks.md` |
+| 10 | **Reddit** | **Bash + curl** (.json endpoints) | `references/reddit.md` |
 
-SEC and Finviz come first because they are the two most reliable. SEC is the only source whose failure is fatal — the orchestrator aborts the deep-dive if it cannot reach SEC. All other sources can individually fail without blocking the run.
+SEC is the only source whose failure is fatal — the orchestrator aborts the deep-dive if it cannot reach SEC. **All other sources can individually fail without blocking the run.** Zacks in particular is best-effort and often fails to Cloudflare; accept it when it works, move on when it doesn't.
 
-**MODE=thesis — reduced set:**
-SEC EDGAR (core concepts only), Finviz, Yahoo Finance JSON API. Skip Stockanalysis, SWS, SA unless specifically asked.
+**MODE=thesis — reduced set (5 sources):**
+SEC EDGAR (core concepts only), Finviz, Stockanalysis, Yahoo Finance JSON API, Google News RSS (for the headlines layer). Skip Macrotrends, SWS, SA, Zacks, Reddit unless specifically asked.
 
-**MODE=compare — per-ticker reduced set:**
-Finviz, Yahoo Finance JSON API, Stockanalysis. SEC EDGAR only if not already fetched for this ticker in another session today (check via `ls ~/.claude/stockwiz/sessions/${TICKER}-*/raw/sec-edgar-10k.md 2>/dev/null`). Skip SWS and SA in compare mode — they're too slow to do per ticker.
+**MODE=compare — per-ticker reduced set (4 sources):**
+Finviz, Yahoo Finance JSON API, Stockanalysis, Google News RSS. SEC EDGAR only if not already fetched for this ticker in another session today (check via `ls ~/.claude/stockwiz/sessions/${TICKER}-*/raw/sec-edgar-10k.md 2>/dev/null`). Skip Macrotrends, SWS, SA, Zacks, Reddit in compare mode — they're too slow to do per ticker.
 
-**MODE=revisit — minimal:**
-Finviz + Yahoo Finance JSON API + 30-day news WebSearch. Files prefixed `revisit-YYYYMMDD-`.
+**MODE=revisit — minimal (3 sources):**
+Finviz + Yahoo Finance JSON API + Google News RSS (for the drift-check headlines). Files prefixed `revisit-YYYYMMDD-`.
 
-**MODE=bear — reduced set:**
-Same as MODE=thesis, but with an emphasis on short interest (Finviz + Yahoo API) and SEC filings for any recent 8-Ks (fetch submissions API specifically looking at the most recent 8-K entries).
+**MODE=bear — reduced set (6 sources):**
+Same as MODE=thesis, plus SWS (for its risks list which is high-value bear input) and Reddit (for retail sentiment as contrarian signal). Emphasis on short interest (Finviz + Yahoo API) and SEC filings for any recent 8-Ks.
 
-**Phase 2+ sources (NOT in your fetch plan for Phase 1.5):**
-Google Finance, Zacks, TradingView, Macrotrends, Reddit. References for these don't exist yet.
-
-**FRED is never in your fetch plan.** It's only called by the `macro-context` skill when a specific series is needed.
+**Phase 3+ sources NOT in your fetch plan for Phase 2.5:**
+- TradingView (needs headless Chrome for JS-rendered content)
+- FRED (only called by macro-context skill when requested)
 
 ### Step 2.5 — Check for prerequisites
 
@@ -106,17 +109,25 @@ For each source in the plan, in order. The fetch mechanics differ by source — 
 
 **Source-specific mechanics:**
 
-- **SEC EDGAR (curl + JSON APIs):** See `references/sec-edgar.md`. This is 6–7 curl calls: one-time `company_tickers.json` cached in `~/.claude/stockwiz/cache/`, one `submissions/CIK{cik}.json`, and 5 `companyconcept/.../us-gaap/{concept}.json` calls. Use `jq` or `python3` to parse each JSON response and build the raw markdown file. **If SEC EDGAR fails, mark the source failed AND set meta.json.status to `"failed"` and stop fetching.** The orchestrator will see this and abort the deep-dive.
+- **SEC EDGAR (curl + JSON APIs):** See `references/sec-edgar.md`. 6–7 curl calls: one-time `company_tickers.json` cached in `~/.claude/stockwiz/cache/`, one `submissions/CIK{cik}.json`, and 5 `companyconcept/.../us-gaap/{concept}.json` calls. Use `jq` or `python3` to parse each JSON response. **If SEC EDGAR fails, mark the source failed AND set meta.json.status to `"failed"` and stop fetching.** The orchestrator will see this and abort.
 
-- **Finviz (WebFetch):** One WebFetch call per `references/finviz.md`. Phase 1 worked fine, nothing changes.
+- **Finviz (WebFetch):** One WebFetch call per `references/finviz.md`. Most reliable scraped source in the set.
 
-- **Stockanalysis (curl + lynx):** 3 curl calls per `references/stockanalysis.md` (overview, financials, statistics). Pipe each through `lynx -stdin -dump -width=140`. If `lynx` is unavailable, save raw HTML to a tempfile and Read it with an offset/limit.
+- **Stockanalysis (curl + lynx):** 3 curl calls per `references/stockanalysis.md` (overview, financials, statistics). Pipe each through `lynx -stdin -dump -width=140`.
+
+- **Macrotrends (WebSearch + curl + lynx):** First resolve the company slug via `WebSearch` with `site:macrotrends.net {TICKER} revenue`. Then 4 curl calls to revenue/net-income/gross-profit/free-cash-flow pages, each piped through lynx. See `references/macrotrends.md`. **Phase 2.5 value: 10+ years of historical data for cycle context.**
 
 - **Yahoo Finance (curl + cookies + JSON API):** 2-3 curl calls per `references/yahoo-finance.md`. First call is a throwaway to `finance.yahoo.com/quote/{ticker}` with `-c cookie_jar` to get the consent cookie. Second call is `query1.finance.yahoo.com/v10/finance/quoteSummary/...` with `-b cookie_jar` to get the JSON. Clean up the cookie jar when done.
 
+- **Google Finance + Google News RSS (curl + RSS + lynx):** 2-3 curl calls per `references/google-finance.md`. **Primary is the News RSS feed** at `news.google.com/rss/search?q=%22{TICKER}%22+stock&hl=en-US&gl=US&ceid=US:en` — keyless, returns well-formed XML with up to 20 recent headlines + publishers + dates. Secondary is the Google Finance quote page (often returns empty SSR; use as cross-check only). **Phase 2.5 value: this is the news layer stockwiz has been missing.** Extract up to 20 items: title, publisher, pubDate, description snippet. Compute publisher distribution (Reuters N, Bloomberg M, SA K, etc).
+
 - **Simply Wall Street (WebSearch + curl + lynx):** First resolve the canonical URL via `WebSearch` with `site:simplywall.st {TICKER}`. Then curl the resulting URL with a browser UA and pipe through lynx. See `references/simply-wall-street.md`.
 
-- **Seeking Alpha (curl + lynx):** 1-2 curl calls per `references/seeking-alpha.md`, piped through lynx. Public sections only (ratings + factor grades). Do NOT attempt to fetch article bodies.
+- **Seeking Alpha (curl + lynx):** 1-2 curl calls per `references/seeking-alpha.md`, piped through lynx. Public sections only (ratings + factor grades). Do NOT attempt to fetch article bodies. SSR gap: Quant Rating and Factor Grades are often client-side-loaded and absent from SSR — note in source file if this happens.
+
+- **Zacks (curl + lynx — BEST EFFORT):** 1 curl call per `references/zacks.md`. **Fail fast on Cloudflare challenge.** After the fetch, grep the response for `challenges.cloudflare.com`, `Attention Required`, `Checking your browser` — if any match, mark failed with reason `cloudflare-challenge` and move on, **zero retries**. Do NOT try header variations — they usually also fail. Zacks is best-effort; if it works, you get Zacks Rank + Style Scores. If not, no loss.
+
+- **Reddit (curl + .json endpoints):** 3 curl calls (one per subreddit: r/stocks, r/wallstreetbets, r/investing). Use `-A "stockwiz-research/0.3 by anonymous (contact: noreply@stockwiz.local)"` — Reddit's TOS requires a descriptive User-Agent. Parse JSON with jq or python3. **Capture titles/scores/comments/date/permalink only — never usernames, never post bodies.** Rate-limit tolerant: on 429, skip remaining subs but don't hard-fail. Aggregate metrics: total posts matching ticker in last 30 days per sub, activity level (quiet/normal/elevated/heavy).
 
 **Detecting SEC EDGAR fatality:**
 
@@ -176,8 +187,8 @@ These are enforced operational invariants. Violations corrupt the pipeline.
 1. **Never fabricate a number.** If a source didn't disclose a value, write "not disclosed in source" or leave the field empty. NEVER synthesize a plausible-looking number.
 2. **Never editorialize.** Phrases like "this is a strong company", "the balance sheet looks healthy", "analysts are optimistic" never appear in any file you write. You are a librarian.
 3. **Never fetch the same URL twice in one run.** If the URL is in a file you already wrote, skip.
-4. **Max 25 total fetches per session** (WebFetch + curl combined). Hard cap. If you are approaching it, stop and return with what you have.
-5. **Max 2 WebSearch calls.** Only used to resolve canonical URLs (e.g. Simply Wall Street).
+4. **Max 35 total fetches per session** (WebFetch + curl combined). Hard cap. Phase 2.5's 10-source happy path averages ~25-30 fetches; the ceiling is 35 to accommodate retries and multi-page sources (Macrotrends 4 + Stockanalysis 3 + SEC 7 + Yahoo 3 + Reddit 3 + everything else).
+5. **Max 3 WebSearch calls.** Used to resolve canonical URLs for Simply Wall Street, Macrotrends, and (fallback only) Google News company-name query.
 6. **One retry per source, maximum.** If a source fails its first attempt and a retry is warranted (503/429/timeout), retry once after the prescribed backoff. Cloudflare challenges and 403s are NOT retry-able. Retries burn the rate-limit budget and rarely help — Cloudflare challenges don't go away in 1.5 seconds.
 7. **1500ms between fetches.** Always. No exceptions. Use `Bash sleep 1.5` when in doubt.
 8. **Never call tools other than those in your frontmatter.** You have Read, Write, Glob, Grep, WebFetch, WebSearch, Bash, TodoWrite. You do NOT have Task — you are not allowed to delegate to other subagents.

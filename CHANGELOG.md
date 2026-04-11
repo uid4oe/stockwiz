@@ -2,6 +2,66 @@
 
 All notable changes to stockwiz are documented in this file.
 
+## [0.3.0] — 2026-04-11
+
+### Phase 2.5 — Insights-first report + four new sources
+
+Two substantial changes landing together: a ground-up redesign of the HTML report toward "concise insights first, details on demand", and expansion of the source set from 6 to 10 to close real gaps (primarily the missing news layer and long-run historical context).
+
+**Report redesign — insights-first with progressive disclosure**
+
+The previous template was a long-form research brief where the reader scrolled through ~60-120KB of HTML in linear order. Field use showed that readers want a 20-second scan first and details on demand.
+
+New template (v0.3):
+
+1. **Above the fold** (always visible, targets ~1 viewport height on a laptop):
+   - **Hero** — ticker, company, price, as-of, sector/industry. Minimal, no tagline, no sparkline.
+   - **Key metrics strip** — 6 metrics in one row with tabular-numeric values (market cap, P/E T, P/E F, FCF yield, revenue growth, ROIC)
+   - **The TL;DR panel** — compact three cases (one-sentence headlines in hash-shuffled order) + three curated callouts:
+     - **Key insight** — ONE most striking observation picked from the analyses via an explicit heuristic (anomalous quality metric, step-change growth, capital-structure surprise, margin inflection, historical outlier, SWS extreme). Curated by the report-writer, not just extracted.
+     - **Closest kill switch** — the kill switch with the smallest margin of safety, with a compact stats bar showing current / trigger / margin to go
+     - **Biggest unknown** — the most material item from thesis.md Unknowns as one sentence
+
+2. **Below the fold** (native HTML `<details>`/`<summary>`, no JavaScript, print-expands-all):
+   - Three Cases (full) — `open` by default
+   - Kill Switches (all, sorted by margin ascending)
+   - Fundamentals, Sentiment, Peers, Risk, Assumption Ledger, Unknowns, Sources, Adversarial Pass — all collapsed by default
+   - Each `<summary>` shows the section title plus a one-line abstract so readers can decide what to expand
+
+3. **Always visible at bottom**: disclaimer footer (never collapsible, compliance-exempt).
+
+The new `base-styles.css` is a ground-up rewrite: minimal sans-serif typography, tabular-numeric monospace for metrics, single warm-blue accent, generous whitespace, no decorative flourishes, print-friendly rules that force-expand all `<details>` when printing.
+
+The `report-writer` agent gains a new **Step 5 — Curate TL;DR atoms** that runs *before* HTML composition. It explicitly picks the key insight, closest kill switch, and biggest unknown using documented heuristics. This is the most important new behavior — the TL;DR is curated, not just extracted.
+
+**Four new sources bringing Phase 2.5 to 10 total**
+
+- **Google Finance + Google News RSS** — the news layer stockwiz has been missing. Google News RSS (`news.google.com/rss/search?q=...`) is keyless, returns well-formed XML, aggregates Bloomberg/Reuters/WSJ/CNBC/Seeking Alpha/many others with publication timestamps. Captures up to 20 recent headlines with publishers + pubDates + snippets. Computes publisher distribution (wire-heavy vs opinion-heavy) as a shape signal. Google Finance quote page is a secondary cross-check (often SSR-empty but occasionally useful).
+- **Macrotrends** — 10-20 years of annual historical data for revenue, net income, gross profit/margin, and free cash flow/margin. Complements Stockanalysis's 5Y with deep cycle context. WebSearch resolves the company slug, then 4 curl calls (one per metric page) piped through lynx. Critical for "is this a cyclical peak?" questions.
+- **Zacks** — Zacks Rank and Style Scores (VGM) on a best-effort basis. Aggressive Cloudflare-challenge detection: if the response contains challenge page markers, mark failed and move on with zero retries. When it works, provides unique proprietary scoring; when it doesn't, no material loss.
+- **Reddit** — r/stocks, r/wallstreetbets, r/investing via keyless `.json` endpoints. Captures top posts' titles / scores / comment counts / dates / permalinks — **never** usernames, never post bodies. Aggregates per-sub post count, average score, activity level (quiet/normal/elevated/heavy). Explicit contrarian-signal weighting (0.2) in sentiment synthesis — heavy retail bullishness historically correlates with near-term consolidation more than continued uptrends.
+
+**Source pipeline updates**
+
+- `deep-researcher` fetch plan expanded from 6 to 10 sources, with a new ordering that front-loads reliable structured sources (SEC → Finviz → Stockanalysis → Macrotrends → Yahoo) before news/narrative/best-effort sources (Google News → SWS → SA → Zacks → Reddit)
+- `source-extraction/SKILL.md` source index updated with Phase 2.5 column; 10 sources marked as wired, TradingView and FRED remain deferred
+- Fetch budget widened from 25 to **35 total calls + 3 WebSearch** to accommodate Macrotrends' 4-page fetch and the happy path's ~28-32 calls
+- New fallback chains documented: news/catalysts (Google News → SA teasers → SEC 8-K), retail sentiment (Reddit r/stocks + r/wallstreetbets + r/investing), long-run cycle context (Macrotrends 10-20Y → Stockanalysis 5Y)
+- Reduced modes (thesis, compare, revisit, bear) updated to pick appropriate source subsets
+
+**Report-writer updates for insights-first**
+
+- New `Step 5 — Curate TL;DR atoms` runs before composition; picks key insight / closest kill switch / biggest unknown
+- Composition order follows the new v0.3 template section list (hero → metrics → TL;DR → details sections → disclaimer)
+- New `Step 6.5 — Compute summary abstracts` produces per-section one-line abstracts so collapsed sections are still scannable
+- Step numbering renumbered (old Step 6/7/8/9 became 8/9/10/11)
+
+**Known Phase 2.5 limitations (deferred to Phase 3+)**
+- TradingView still requires headless Chrome; deferred
+- Peer fetching still relies on SWS competitor snowflakes (2-3 peers typically). A proper peer-fetch capability (Finviz-based per-peer quick fetches) is Phase 3.
+- Analysis skills still run sequentially in the main context; parallelization would require wrapping each in a Task subagent
+- SEC 10-K prose (business description, Item 1A, Item 7 MD&A) still not parsed — only XBRL facts
+
 ## [0.2.0] — 2026-04-11
 
 ### Phase 2 — Four analysis skills + adversarial pass

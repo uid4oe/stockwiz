@@ -1,20 +1,20 @@
 /*
- * stockwiz base styles
+ * stockwiz base styles — v0.3.0
  *
- * Shared CSS for HTML reports. This file is inlined by the report-writer agent
- * into a <style> block — no external stylesheets, no network requests.
+ * Insights-first layout. The top of the report is a dense TL;DR panel
+ * that fits in one viewport height on a laptop and carries the
+ * 5-atom summary (hero / metrics / three cases / key insight / closest
+ * kill switch / biggest unknown). Everything else is progressive
+ * disclosure via native <details>/<summary> — no JavaScript.
  *
- * Design constraints (from the plan):
- *   - Two fonts max (one display, one body). Display via Google Fonts <link> is allowed.
- *   - Single color scheme (dark-on-light OR light-on-dark, not both).
- *   - No purple gradients, no generic Inter, no neon.
- *   - Print-friendly: no mid-column breaks.
- *   - Bull / Base / Bear columns must render at equal visual weight.
- *   - Disclaimer footer is always visible, last element, not collapsible.
- *
- * This file provides the reset, typography, color tokens, layout primitives,
- * and print rules. The report-writer agent layers the frontend-design skill's
- * aesthetic direction on top (distinctive display font, hero treatment, etc).
+ * Design constraints:
+ *   - Minimal: no decorative flourishes, generous whitespace
+ *   - Tabular numerics for the metrics strip
+ *   - Single accent color for emphasis (warm blue-grey)
+ *   - No traffic-light coloring
+ *   - Bull / Base / Bear at equal visual weight
+ *   - Print-friendly: all <details> expand in print mode
+ *   - Self-contained: no network resources except optional Google Fonts
  */
 
 /* ---------- Reset ---------- */
@@ -23,7 +23,7 @@
   box-sizing: border-box;
 }
 
-html, body, h1, h2, h3, h4, h5, h6, p, ul, ol, li, figure, blockquote {
+html, body, h1, h2, h3, h4, h5, h6, p, ul, ol, li, figure, blockquote, details, summary {
   margin: 0;
   padding: 0;
 }
@@ -42,27 +42,44 @@ table {
   width: 100%;
 }
 
-/* ---------- Color tokens (light scheme, neutral ink) ---------- */
+summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+/* ---------- Color tokens ---------- */
 
 :root {
-  --bg: #fbfaf7;
-  --bg-alt: #f2efe8;
+  --bg: #fafaf8;
+  --bg-panel: #ffffff;
+  --bg-inset: #f2f0eb;
+
   --ink: #1a1a1a;
-  --ink-soft: #4a4a4a;
-  --ink-faint: #7a7a7a;
-  --rule: #d9d5cb;
+  --ink-soft: #55534e;
+  --ink-faint: #8a8680;
+  --ink-dim: #c5c1b8;
 
-  /* semantic — muted, NOT traffic-light */
-  --accent: #2c5f7e;
-  --accent-soft: #e3eff5;
-  --warn: #9b6a3b;
-  --warn-soft: #f1e6d4;
+  --rule: #e4e0d6;
+  --rule-strong: #cfcabe;
 
-  /* case columns — intentionally equal weight, no color bias */
-  --case-border: #d9d5cb;
+  --accent: #2f5668;
+  --accent-soft: #e6edf1;
+  --warn: #8b6330;
+  --warn-soft: #f2ead8;
+
+  --case-ink: #1a1a1a;
   --case-bg: #ffffff;
+  --case-border: #d9d5cb;
 
-  /* spacing scale */
+  /* monospace-for-numbers */
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", Consolas, monospace;
+
+  /* spacing */
+  --s-0: 0.125rem;
   --s-1: 0.25rem;
   --s-2: 0.5rem;
   --s-3: 0.75rem;
@@ -71,204 +88,424 @@ table {
   --s-6: 2rem;
   --s-7: 3rem;
   --s-8: 4rem;
+  --s-9: 6rem;
 
-  --max-w: 72rem;
+  --max-w: 68rem;
 }
 
 /* ---------- Typography ---------- */
 
 body {
-  font-family: ui-serif, Georgia, "Iowan Old Style", "Palatino Linotype",
-               "Palatino", "Hoefler Text", serif;
-  font-size: 16px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
   line-height: 1.55;
   color: var(--ink);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "kern", "liga", "calt";
 }
 
 h1, h2, h3, h4 {
-  font-family: inherit; /* report-writer can override with a display font via Google Fonts */
-  font-weight: 700;
-  line-height: 1.15;
+  font-weight: 600;
+  line-height: 1.2;
   letter-spacing: -0.01em;
   color: var(--ink);
 }
 
-h1 { font-size: 2.25rem; margin-bottom: var(--s-3); }
-h2 { font-size: 1.5rem; margin-top: var(--s-7); margin-bottom: var(--s-3);
-     border-top: 1px solid var(--rule); padding-top: var(--s-5); }
-h3 { font-size: 1.15rem; margin-top: var(--s-5); margin-bottom: var(--s-2); }
-h4 { font-size: 1rem; margin-top: var(--s-4); margin-bottom: var(--s-1); color: var(--ink-soft); }
+h1 { font-size: 2rem; }
+h2 { font-size: 1.1rem; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--ink-soft); }
+h3 { font-size: 0.95rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-faint); }
+h4 { font-size: 0.85rem; font-weight: 600; color: var(--ink-soft); }
 
 p { margin-bottom: var(--s-3); }
 p + p { margin-top: var(--s-2); }
 
-small, .footnote {
-  font-size: 0.85rem;
+.num, .mono, code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+small, .footnote, .meta {
+  font-size: 0.82rem;
   color: var(--ink-faint);
-  line-height: 1.45;
 }
 
 sup {
-  font-size: 0.75em;
+  font-size: 0.7em;
   vertical-align: super;
-  color: var(--accent);
   text-decoration: none;
   margin-left: 1px;
+  color: var(--accent);
 }
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent-soft);
+}
+
+a:hover { border-bottom-color: var(--accent); }
 
 /* ---------- Layout ---------- */
 
 .stockwiz-container {
   max-width: var(--max-w);
   margin: 0 auto;
-  padding: var(--s-6) var(--s-5);
+  padding: var(--s-6) var(--s-5) var(--s-9);
 }
+
+/* ---------- Hero ---------- */
 
 .stockwiz-hero {
-  padding: var(--s-7) 0 var(--s-5);
+  padding-bottom: var(--s-4);
   border-bottom: 1px solid var(--rule);
+  margin-bottom: var(--s-5);
 }
 
-.stockwiz-hero h1 {
-  font-size: 2.75rem;
-  letter-spacing: -0.02em;
-}
-
-.stockwiz-hero .tagline {
-  font-size: 1.1rem;
-  color: var(--ink-soft);
-  margin-top: var(--s-2);
-  max-width: 44rem;
-}
-
-.stockwiz-meta {
-  font-size: 0.85rem;
+.stockwiz-hero .eyebrow {
+  font-size: 0.72rem;
   color: var(--ink-faint);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   margin-bottom: var(--s-2);
 }
 
-/* ---------- Snapshot strip ---------- */
-
-.stockwiz-snapshot {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: var(--s-3);
-  margin: var(--s-5) 0;
-}
-
-.stockwiz-snapshot .card {
-  background: var(--bg-alt);
-  padding: var(--s-3) var(--s-4);
-  border-left: 2px solid var(--accent);
-}
-
-.stockwiz-snapshot .label {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--ink-faint);
-}
-
-.stockwiz-snapshot .value {
-  font-size: 1.25rem;
+.stockwiz-hero h1 {
+  font-size: 2rem;
   font-weight: 600;
-  margin-top: var(--s-1);
-  color: var(--ink);
+  letter-spacing: -0.015em;
+  margin-bottom: var(--s-2);
 }
 
-/* ---------- The three cases — equal visual weight is mandatory ---------- */
+.stockwiz-hero h1 .ticker { font-family: var(--mono); font-weight: 700; }
 
-.stockwiz-cases {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--s-4);
-  margin: var(--s-5) 0;
-}
+.stockwiz-hero h1 .sep { color: var(--ink-dim); margin: 0 var(--s-2); font-weight: 400; }
 
-.stockwiz-cases .case {
-  background: var(--case-bg);
-  border: 1px solid var(--case-border);
-  padding: var(--s-5);
-}
+.stockwiz-hero h1 .company-name { font-weight: 400; color: var(--ink-soft); }
 
-.stockwiz-cases .case h3 {
+.stockwiz-hero .price-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  color: var(--ink-soft);
   font-size: 1rem;
+}
+
+.stockwiz-hero .price {
+  font-family: var(--mono);
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Key metrics strip ---------- */
+
+.stockwiz-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: var(--s-6);
+}
+
+.stockwiz-metrics .metric {
+  padding: var(--s-3) var(--s-3);
+  border-right: 1px solid var(--rule);
+}
+
+.stockwiz-metrics .metric:last-child { border-right: none; }
+
+.stockwiz-metrics .label {
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--ink-faint);
-  margin-top: 0;
-  margin-bottom: var(--s-3);
-  font-weight: 600;
+  margin-bottom: var(--s-1);
 }
 
-.stockwiz-cases .case .headline {
-  font-size: 1.1rem;
+.stockwiz-metrics .value {
+  font-family: var(--mono);
+  font-size: 1.05rem;
   font-weight: 600;
   color: var(--ink);
-  margin-bottom: var(--s-4);
-  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
 }
 
-.stockwiz-cases .case ul {
-  margin-bottom: var(--s-4);
+/* ---------- The TL;DR panel ---------- */
+
+.stockwiz-tldr {
+  padding: var(--s-5) 0 var(--s-6);
+  border-bottom: 2px solid var(--ink);
+  margin-bottom: var(--s-7);
 }
 
-.stockwiz-cases .case li {
+.stockwiz-tldr > h2 {
+  margin-bottom: var(--s-4);
+  color: var(--ink);
+}
+
+/* three compact cases in the TL;DR */
+.stockwiz-cases-compact {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s-4);
+  margin-bottom: var(--s-5);
+}
+
+.stockwiz-cases-compact .case {
+  padding: var(--s-4);
+  border: 1px solid var(--case-border);
+  background: var(--case-bg);
+}
+
+.stockwiz-cases-compact .case-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: var(--s-2);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.stockwiz-cases-compact .case-mark {
+  font-size: 0.9rem;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+}
+
+.stockwiz-cases-compact .case-headline {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--case-ink);
+}
+
+/* Insight / kill switch / unknown callouts */
+.stockwiz-callouts {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s-4);
+}
+
+.stockwiz-callouts .callout {
+  padding-left: var(--s-4);
+  border-left: 2px solid var(--rule-strong);
+}
+
+.stockwiz-callouts .callout-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: var(--s-1);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.stockwiz-callouts .callout-mark {
+  font-family: var(--mono);
+  color: var(--ink-dim);
+}
+
+.stockwiz-callouts .callout-body {
   font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+.stockwiz-callouts .callout.insight { border-left-color: var(--accent); }
+.stockwiz-callouts .callout.insight .callout-mark { color: var(--accent); }
+.stockwiz-callouts .callout.kill-switch { border-left-color: var(--warn); }
+.stockwiz-callouts .callout.kill-switch .callout-mark { color: var(--warn); }
+
+/* Margin-of-safety bar for the closest kill switch */
+.stockwiz-callouts .margin-bar {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--ink-faint);
+  margin-top: var(--s-2);
+}
+
+.stockwiz-callouts .margin-bar .current {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ---------- Details / progressive disclosure ---------- */
+
+details.stockwiz-section {
+  border-bottom: 1px solid var(--rule);
+  padding: 0;
+}
+
+details.stockwiz-section > summary {
+  padding: var(--s-4) 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  transition: color 0.15s ease;
+}
+
+details.stockwiz-section > summary:hover { color: var(--accent); }
+
+details.stockwiz-section > summary::before {
+  content: "▸";
+  color: var(--ink-dim);
+  font-size: 0.75rem;
+  width: 1em;
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+details.stockwiz-section[open] > summary::before {
+  content: "▾";
+  color: var(--ink-soft);
+}
+
+details.stockwiz-section > summary .section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+}
+
+details.stockwiz-section > summary .section-abstract {
+  font-size: 0.88rem;
+  color: var(--ink-faint);
+  flex: 1;
+}
+
+details.stockwiz-section > .details-body {
+  padding: 0 0 var(--s-6) 1.5em;
+}
+
+details.stockwiz-section > .details-body p:first-child { margin-top: 0; }
+
+/* Inside details, section sub-headings */
+.details-body h3 {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  margin-top: var(--s-5);
+  margin-bottom: var(--s-2);
+}
+
+.details-body h3:first-child { margin-top: 0; }
+
+.details-body h4 {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-top: var(--s-4);
+  margin-bottom: var(--s-2);
+}
+
+/* ---------- Full three cases (inside details) ---------- */
+
+.stockwiz-cases-full {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s-4);
+  margin: var(--s-4) 0;
+}
+
+.stockwiz-cases-full .case {
+  padding: var(--s-4);
+  border: 1px solid var(--case-border);
+  background: var(--case-bg);
+}
+
+.stockwiz-cases-full .case > h4 {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-top: 0;
+  margin-bottom: var(--s-2);
+}
+
+.stockwiz-cases-full .case .headline {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  font-weight: 500;
+  color: var(--case-ink);
+  margin-bottom: var(--s-3);
+}
+
+.stockwiz-cases-full .case ul {
+  margin-bottom: var(--s-3);
+}
+
+.stockwiz-cases-full .case li {
+  font-size: 0.85rem;
   line-height: 1.5;
   padding-left: var(--s-3);
   position: relative;
   margin-bottom: var(--s-2);
+  color: var(--ink-soft);
 }
 
-.stockwiz-cases .case li::before {
+.stockwiz-cases-full .case li::before {
   content: "—";
   position: absolute;
   left: 0;
-  color: var(--ink-faint);
+  color: var(--ink-dim);
 }
 
-.stockwiz-cases .case .timeline {
-  font-size: 0.8rem;
+.stockwiz-cases-full .case .timeline {
+  font-size: 0.78rem;
   color: var(--ink-faint);
-  margin-top: var(--s-4);
-  padding-top: var(--s-3);
+  margin-top: var(--s-3);
+  padding-top: var(--s-2);
   border-top: 1px dashed var(--rule);
 }
 
+/* ---------- Kill switches table ---------- */
+
 .stockwiz-kill-switches {
-  background: var(--bg-alt);
-  border-left: 3px solid var(--warn);
-  padding: var(--s-4) var(--s-5);
-  margin: var(--s-5) 0;
+  margin: var(--s-4) 0;
 }
 
-.stockwiz-kill-switches h3 {
-  margin-top: 0;
-  font-size: 0.95rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--warn);
+.stockwiz-kill-switches .switch {
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--rule);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--s-3);
+  align-items: baseline;
 }
 
-.stockwiz-kill-switches ul li {
-  padding: var(--s-2) 0;
-  border-bottom: 1px dashed var(--rule);
-  font-size: 0.95rem;
+.stockwiz-kill-switches .switch:last-child { border-bottom: none; }
+
+.stockwiz-kill-switches .trigger {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--ink);
 }
 
-.stockwiz-kill-switches ul li:last-child { border-bottom: none; }
+.stockwiz-kill-switches .margin {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.stockwiz-kill-switches .margin .current { color: var(--ink); font-weight: 600; }
 
 /* ---------- Tables ---------- */
 
 .stockwiz-table {
-  margin: var(--s-4) 0;
-  font-size: 0.9rem;
+  margin: var(--s-3) 0;
+  font-size: 0.88rem;
 }
 
 .stockwiz-table th, .stockwiz-table td {
@@ -279,47 +516,66 @@ sup {
 
 .stockwiz-table th {
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--ink-faint);
-  background: var(--bg-alt);
+  border-bottom: 1px solid var(--rule-strong);
 }
 
-.stockwiz-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.stockwiz-table td.num {
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
 
-/* direction-of-goodness cell treatment (muted, not traffic-light) */
-.stockwiz-table td.good  { background: var(--accent-soft); }
-.stockwiz-table td.watch { background: var(--warn-soft); }
+.stockwiz-table td.num.strong { color: var(--ink); font-weight: 600; }
 
-/* ---------- Sparklines (inline SVG) ---------- */
+.stockwiz-table td.good {
+  background: var(--accent-soft);
+}
+
+.stockwiz-table td.watch {
+  background: var(--warn-soft);
+}
+
+/* ---------- Sparklines ---------- */
 
 .stockwiz-sparkline {
-  display: inline-block;
-  vertical-align: middle;
+  display: block;
   color: var(--accent);
+  margin: var(--s-2) 0;
 }
 
-/* ---------- Quotes (used to wrap source quotations past compliance) ---------- */
+.stockwiz-sparkline-label {
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+}
+
+/* ---------- Quoted source labels ---------- */
 
 q {
-  font-style: italic;
-  color: var(--ink-soft);
-  quotes: "\201C" "\201D";
+  font-style: normal;
+  color: var(--ink);
+  background: var(--bg-inset);
+  padding: 0 var(--s-1);
+  border-radius: 2px;
+  font-size: 0.92em;
+  quotes: none;
 }
 
-q::before { content: open-quote; }
-q::after { content: close-quote; }
+q::before, q::after { content: ""; }
 
-/* ---------- Sources + footnotes ---------- */
-
-.stockwiz-sources {
-  font-size: 0.85rem;
-  color: var(--ink-soft);
-}
+/* ---------- Sources list ---------- */
 
 .stockwiz-sources ol {
   list-style: decimal inside;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
 }
 
 .stockwiz-sources li {
@@ -327,71 +583,104 @@ q::after { content: close-quote; }
   word-break: break-word;
 }
 
-.stockwiz-sources a {
-  color: var(--accent);
-  text-decoration: none;
-  border-bottom: 1px dotted var(--accent);
-}
-
 /* ---------- Adversarial appendix ---------- */
 
 .stockwiz-adversarial {
-  background: var(--bg-alt);
-  padding: var(--s-5) var(--s-6);
-  margin: var(--s-6) 0;
-  border: 1px solid var(--rule);
+  /* Distinguished but not red-alert */
 }
 
-.stockwiz-adversarial h2 {
-  border-top: none;
-  padding-top: 0;
-  margin-top: 0;
-  color: var(--warn);
+.stockwiz-adversarial .stockwiz-section-intro {
+  font-style: italic;
+  color: var(--ink-faint);
+  font-size: 0.88rem;
+  margin-bottom: var(--s-4);
+  padding: var(--s-3);
+  background: var(--bg-inset);
+  border-left: 2px solid var(--warn);
 }
 
-.stockwiz-adversarial h3 {
-  color: var(--ink);
+.stockwiz-adversarial ol {
+  list-style: decimal inside;
+  margin: var(--s-3) 0;
 }
 
-/* ---------- Disclaimer footer (always visible, not removable) ---------- */
+.stockwiz-adversarial ol li {
+  margin-bottom: var(--s-3);
+  padding-left: var(--s-2);
+}
+
+/* ---------- Disclaimer footer (always visible, never collapsible) ---------- */
 
 .stockwiz-disclaimer {
   margin-top: var(--s-8);
-  padding: var(--s-5) 0 var(--s-4);
+  padding-top: var(--s-5);
   border-top: 2px solid var(--ink);
-  font-size: 0.85rem;
-  color: var(--ink-soft);
-  line-height: 1.5;
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  line-height: 1.55;
 }
 
 .stockwiz-disclaimer p { margin-bottom: var(--s-2); }
 
+.stockwiz-disclaimer strong { color: var(--ink-soft); }
+
 .stockwiz-disclaimer .footnote {
-  font-size: 0.75rem;
-  color: var(--ink-faint);
+  font-size: 0.72rem;
+  color: var(--ink-dim);
   margin-top: var(--s-3);
+  font-family: var(--mono);
 }
 
 /* ---------- Responsive ---------- */
 
-@media (max-width: 780px) {
-  .stockwiz-cases { grid-template-columns: 1fr; }
-  .stockwiz-hero h1 { font-size: 2rem; }
-  h1 { font-size: 1.75rem; }
-  h2 { font-size: 1.25rem; }
+@media (max-width: 860px) {
+  :root { --max-w: 100%; }
+  .stockwiz-container { padding: var(--s-5) var(--s-4) var(--s-8); }
+
+  .stockwiz-metrics {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .stockwiz-metrics .metric:nth-child(3) { border-right: none; }
+  .stockwiz-metrics .metric:nth-child(n+4) {
+    border-top: 1px solid var(--rule);
+  }
+
+  .stockwiz-cases-compact, .stockwiz-cases-full {
+    grid-template-columns: 1fr;
+  }
+
+  .stockwiz-hero h1 { font-size: 1.6rem; }
+  .stockwiz-hero .price { font-size: 1.2rem; }
 }
 
 /* ---------- Print ---------- */
 
 @media print {
-  body { background: white; color: black; }
+  body { background: white; color: black; font-size: 11pt; }
   .stockwiz-container { max-width: none; padding: 0; }
-  .stockwiz-cases { grid-template-columns: repeat(3, 1fr); page-break-inside: avoid; }
-  .stockwiz-cases .case { page-break-inside: avoid; }
-  .stockwiz-kill-switches { page-break-inside: avoid; }
-  .stockwiz-adversarial { page-break-inside: avoid; }
+
+  /* All details expanded in print */
+  details.stockwiz-section[open], details.stockwiz-section {
+    border-bottom: 1px solid #ccc;
+    page-break-inside: avoid;
+  }
+  details.stockwiz-section > summary::before { content: ""; }
+  details.stockwiz-section > .details-body { display: block !important; padding-left: 0; }
+
+  .stockwiz-cases-compact, .stockwiz-cases-full {
+    page-break-inside: avoid;
+  }
+
+  .stockwiz-tldr { page-break-after: avoid; }
   .stockwiz-disclaimer { page-break-inside: avoid; }
-  h2 { page-break-after: avoid; }
+
   sup { color: inherit; }
-  a[href]::after { content: ""; } /* don't print URLs after links */
+  a[href]::after { content: ""; }
+}
+
+/* Force-open details in print — belt and suspenders */
+@media print {
+  details { display: block; }
+  details > summary { display: block; }
+  details > *:not(summary) { display: block !important; }
 }
