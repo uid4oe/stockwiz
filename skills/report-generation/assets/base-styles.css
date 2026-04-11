@@ -1,0 +1,397 @@
+/*
+ * stockwiz base styles
+ *
+ * Shared CSS for HTML reports. This file is inlined by the report-writer agent
+ * into a <style> block — no external stylesheets, no network requests.
+ *
+ * Design constraints (from the plan):
+ *   - Two fonts max (one display, one body). Display via Google Fonts <link> is allowed.
+ *   - Single color scheme (dark-on-light OR light-on-dark, not both).
+ *   - No purple gradients, no generic Inter, no neon.
+ *   - Print-friendly: no mid-column breaks.
+ *   - Bull / Base / Bear columns must render at equal visual weight.
+ *   - Disclaimer footer is always visible, last element, not collapsible.
+ *
+ * This file provides the reset, typography, color tokens, layout primitives,
+ * and print rules. The report-writer agent layers the frontend-design skill's
+ * aesthetic direction on top (distinctive display font, hero treatment, etc).
+ */
+
+/* ---------- Reset ---------- */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, h1, h2, h3, h4, h5, h6, p, ul, ol, li, figure, blockquote {
+  margin: 0;
+  padding: 0;
+}
+
+ul, ol {
+  list-style: none;
+}
+
+img, svg {
+  display: block;
+  max-width: 100%;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+/* ---------- Color tokens (light scheme, neutral ink) ---------- */
+
+:root {
+  --bg: #fbfaf7;
+  --bg-alt: #f2efe8;
+  --ink: #1a1a1a;
+  --ink-soft: #4a4a4a;
+  --ink-faint: #7a7a7a;
+  --rule: #d9d5cb;
+
+  /* semantic — muted, NOT traffic-light */
+  --accent: #2c5f7e;
+  --accent-soft: #e3eff5;
+  --warn: #9b6a3b;
+  --warn-soft: #f1e6d4;
+
+  /* case columns — intentionally equal weight, no color bias */
+  --case-border: #d9d5cb;
+  --case-bg: #ffffff;
+
+  /* spacing scale */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --s-8: 4rem;
+
+  --max-w: 72rem;
+}
+
+/* ---------- Typography ---------- */
+
+body {
+  font-family: ui-serif, Georgia, "Iowan Old Style", "Palatino Linotype",
+               "Palatino", "Hoefler Text", serif;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4 {
+  font-family: inherit; /* report-writer can override with a display font via Google Fonts */
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+h1 { font-size: 2.25rem; margin-bottom: var(--s-3); }
+h2 { font-size: 1.5rem; margin-top: var(--s-7); margin-bottom: var(--s-3);
+     border-top: 1px solid var(--rule); padding-top: var(--s-5); }
+h3 { font-size: 1.15rem; margin-top: var(--s-5); margin-bottom: var(--s-2); }
+h4 { font-size: 1rem; margin-top: var(--s-4); margin-bottom: var(--s-1); color: var(--ink-soft); }
+
+p { margin-bottom: var(--s-3); }
+p + p { margin-top: var(--s-2); }
+
+small, .footnote {
+  font-size: 0.85rem;
+  color: var(--ink-faint);
+  line-height: 1.45;
+}
+
+sup {
+  font-size: 0.75em;
+  vertical-align: super;
+  color: var(--accent);
+  text-decoration: none;
+  margin-left: 1px;
+}
+
+/* ---------- Layout ---------- */
+
+.stockwiz-container {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: var(--s-6) var(--s-5);
+}
+
+.stockwiz-hero {
+  padding: var(--s-7) 0 var(--s-5);
+  border-bottom: 1px solid var(--rule);
+}
+
+.stockwiz-hero h1 {
+  font-size: 2.75rem;
+  letter-spacing: -0.02em;
+}
+
+.stockwiz-hero .tagline {
+  font-size: 1.1rem;
+  color: var(--ink-soft);
+  margin-top: var(--s-2);
+  max-width: 44rem;
+}
+
+.stockwiz-meta {
+  font-size: 0.85rem;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-bottom: var(--s-2);
+}
+
+/* ---------- Snapshot strip ---------- */
+
+.stockwiz-snapshot {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--s-3);
+  margin: var(--s-5) 0;
+}
+
+.stockwiz-snapshot .card {
+  background: var(--bg-alt);
+  padding: var(--s-3) var(--s-4);
+  border-left: 2px solid var(--accent);
+}
+
+.stockwiz-snapshot .label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-faint);
+}
+
+.stockwiz-snapshot .value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: var(--s-1);
+  color: var(--ink);
+}
+
+/* ---------- The three cases — equal visual weight is mandatory ---------- */
+
+.stockwiz-cases {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s-4);
+  margin: var(--s-5) 0;
+}
+
+.stockwiz-cases .case {
+  background: var(--case-bg);
+  border: 1px solid var(--case-border);
+  padding: var(--s-5);
+}
+
+.stockwiz-cases .case h3 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  margin-top: 0;
+  margin-bottom: var(--s-3);
+  font-weight: 600;
+}
+
+.stockwiz-cases .case .headline {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: var(--s-4);
+  line-height: 1.35;
+}
+
+.stockwiz-cases .case ul {
+  margin-bottom: var(--s-4);
+}
+
+.stockwiz-cases .case li {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  padding-left: var(--s-3);
+  position: relative;
+  margin-bottom: var(--s-2);
+}
+
+.stockwiz-cases .case li::before {
+  content: "—";
+  position: absolute;
+  left: 0;
+  color: var(--ink-faint);
+}
+
+.stockwiz-cases .case .timeline {
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+  margin-top: var(--s-4);
+  padding-top: var(--s-3);
+  border-top: 1px dashed var(--rule);
+}
+
+.stockwiz-kill-switches {
+  background: var(--bg-alt);
+  border-left: 3px solid var(--warn);
+  padding: var(--s-4) var(--s-5);
+  margin: var(--s-5) 0;
+}
+
+.stockwiz-kill-switches h3 {
+  margin-top: 0;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warn);
+}
+
+.stockwiz-kill-switches ul li {
+  padding: var(--s-2) 0;
+  border-bottom: 1px dashed var(--rule);
+  font-size: 0.95rem;
+}
+
+.stockwiz-kill-switches ul li:last-child { border-bottom: none; }
+
+/* ---------- Tables ---------- */
+
+.stockwiz-table {
+  margin: var(--s-4) 0;
+  font-size: 0.9rem;
+}
+
+.stockwiz-table th, .stockwiz-table td {
+  text-align: left;
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--rule);
+}
+
+.stockwiz-table th {
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  background: var(--bg-alt);
+}
+
+.stockwiz-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* direction-of-goodness cell treatment (muted, not traffic-light) */
+.stockwiz-table td.good  { background: var(--accent-soft); }
+.stockwiz-table td.watch { background: var(--warn-soft); }
+
+/* ---------- Sparklines (inline SVG) ---------- */
+
+.stockwiz-sparkline {
+  display: inline-block;
+  vertical-align: middle;
+  color: var(--accent);
+}
+
+/* ---------- Quotes (used to wrap source quotations past compliance) ---------- */
+
+q {
+  font-style: italic;
+  color: var(--ink-soft);
+  quotes: "\201C" "\201D";
+}
+
+q::before { content: open-quote; }
+q::after { content: close-quote; }
+
+/* ---------- Sources + footnotes ---------- */
+
+.stockwiz-sources {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.stockwiz-sources ol {
+  list-style: decimal inside;
+}
+
+.stockwiz-sources li {
+  padding: var(--s-1) 0;
+  word-break: break-word;
+}
+
+.stockwiz-sources a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--accent);
+}
+
+/* ---------- Adversarial appendix ---------- */
+
+.stockwiz-adversarial {
+  background: var(--bg-alt);
+  padding: var(--s-5) var(--s-6);
+  margin: var(--s-6) 0;
+  border: 1px solid var(--rule);
+}
+
+.stockwiz-adversarial h2 {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+  color: var(--warn);
+}
+
+.stockwiz-adversarial h3 {
+  color: var(--ink);
+}
+
+/* ---------- Disclaimer footer (always visible, not removable) ---------- */
+
+.stockwiz-disclaimer {
+  margin-top: var(--s-8);
+  padding: var(--s-5) 0 var(--s-4);
+  border-top: 2px solid var(--ink);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.stockwiz-disclaimer p { margin-bottom: var(--s-2); }
+
+.stockwiz-disclaimer .footnote {
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  margin-top: var(--s-3);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 780px) {
+  .stockwiz-cases { grid-template-columns: 1fr; }
+  .stockwiz-hero h1 { font-size: 2rem; }
+  h1 { font-size: 1.75rem; }
+  h2 { font-size: 1.25rem; }
+}
+
+/* ---------- Print ---------- */
+
+@media print {
+  body { background: white; color: black; }
+  .stockwiz-container { max-width: none; padding: 0; }
+  .stockwiz-cases { grid-template-columns: repeat(3, 1fr); page-break-inside: avoid; }
+  .stockwiz-cases .case { page-break-inside: avoid; }
+  .stockwiz-kill-switches { page-break-inside: avoid; }
+  .stockwiz-adversarial { page-break-inside: avoid; }
+  .stockwiz-disclaimer { page-break-inside: avoid; }
+  h2 { page-break-after: avoid; }
+  sup { color: inherit; }
+  a[href]::after { content: ""; } /* don't print URLs after links */
+}

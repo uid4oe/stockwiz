@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# Node (if we ever add tooling)
+node_modules/
+
+# Local test output
+test-output/
+*.log
+
+# Environment / secrets
+.env
+.env.local
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Python (if ever used for helpers)
+__pycache__/
+*.pyc
+.venv/
