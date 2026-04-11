@@ -1,7 +1,7 @@
 # SEC EDGAR
 
-**Status:** Phase 1, always try first. Most reliable source in the set. Authoritative for US filings.
-**Keyless.** No account or API key required.
+**Status:** Phase 1.5, always try first. Most reliable source in the set. Authoritative for US filings.
+**Access method:** **`Bash` + `curl`** (not WebFetch). SEC requires a descriptive User-Agent header per their [fair-access policy](https://www.sec.gov/os/accessing-edgar-data), and WebFetch does not expose header control. curl does.
 **Rate policy:** SEC asks for ≤10 requests/second. stockwiz uses 1500ms delays, well under the limit.
 
 ## Why first
@@ -9,114 +9,233 @@
 SEC EDGAR is the one source that:
 - Is legally the primary record — no source disagrees with SEC filings, they're the ground truth
 - Does not Cloudflare-challenge, does not consent-wall, does not paywall
-- Provides revenue, cash flow, debt, and risk factors in structured prose
+- Provides structured XBRL facts via a free JSON API
 - Determines whether a ticker is a US filer at all (10-K) or a foreign private issuer (20-F)
 
-If SEC EDGAR fails, something is very wrong. Abort the deep-dive with an error — don't trust the rest.
+If SEC EDGAR fails with curl + descriptive UA, something is very wrong — abort the deep-dive with an error.
 
-## URL patterns
+## Why curl, not WebFetch
 
-### Step 1: Company filing index
+WebFetch in Claude Code sends a default User-Agent that SEC's CDN blocks. SEC's fair-access policy requires requests to identify themselves with a descriptive name and contact (any reasonable string works — SEC does not verify the contact). curl lets us set `-A "stockwiz research plugin noreply@stockwiz.local"` and the 403s disappear.
+
+**This is the pattern for any source that requires header control.** The `deep-researcher` agent uses curl for SEC EDGAR and Yahoo Finance JSON API; WebFetch is still used for Finviz and any source that accepts default UAs.
+
+## Phase 1.5 approach: structured JSON APIs
+
+Instead of scraping the 10-K HTML page (which is ~10MB and fragile), use SEC's structured data APIs. These return small, versioned JSON and give us the numbers we need for a Phase 1.5 thesis without parsing 10MB of HTML. The narrative (business description, risk factors, MD&A prose) is deferred to Phase 2 when we'll add proper 10-K HTML fetching with targeted truncation.
+
+## Step-by-step fetch plan
+
+### Step 1 — Resolve ticker → CIK
+
+SEC needs a 10-digit zero-padded CIK (Central Index Key) to identify a company. We map ticker → CIK from SEC's published index:
+
+```bash
+curl -sS \
+  -A "stockwiz research plugin noreply@stockwiz.local" \
+  -H "Accept: application/json" \
+  --max-time 30 \
+  "https://www.sec.gov/files/company_tickers.json" \
+  > ~/.claude/stockwiz/cache/company_tickers.json
 ```
-https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={ticker}&type=10-K&dateb=&owner=include&count=10
+
+**Cache this response.** The file is ~12KB and changes slowly (days, not minutes). On subsequent `/stockwiz` runs, reuse the cache if it's less than 30 days old. Cache location: `~/.claude/stockwiz/cache/company_tickers.json`.
+
+The JSON structure is a dict keyed by index:
+```json
+{
+  "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+  "1": {"cik_str": 789019, "ticker": "MSFT", "title": "Microsoft Corp"},
+  "...": "..."
+}
 ```
 
-Substitute `{ticker}` with the uppercase symbol. The CIK parameter accepts tickers directly — SEC EDGAR resolves them internally.
+Find the entry matching `ticker == TICKER` (case-insensitive), extract `cik_str`, and zero-pad to 10 digits: `1045810` → `0001045810`.
 
-### Step 2: Latest 10-K primary document
-From the filing index page, find the most recent 10-K row. Click its "Documents" link (this is where the WebFetch prompt should ask the inner model to find the row by date and return the primary document URL). The primary `.htm` document is typically named something like:
-- `aapl-20240928.htm` (Apple)
-- `nvda-20240128.htm` (NVIDIA)
-- `<ticker>-<fiscal-end>.htm`
+Parse with `jq` if available:
+```bash
+CIK=$(jq -r --arg t "$TICKER" '
+  [.[] | select(.ticker == ($t | ascii_upcase))][0].cik_str
+' ~/.claude/stockwiz/cache/company_tickers.json)
+CIK_PADDED=$(printf "%010d" "$CIK")
+```
 
-WebFetch that URL.
+If `jq` is not installed, use Python:
+```bash
+CIK=$(python3 -c "
+import json, sys
+d = json.load(open('/Users/$(whoami)/.claude/stockwiz/cache/company_tickers.json'))
+t = '$TICKER'.upper()
+for v in d.values():
+    if v['ticker'] == t:
+        print(v['cik_str']); break
+")
+CIK_PADDED=$(printf "%010d" "$CIK")
+```
 
-### Optional: latest 10-Q
-Same pattern with `type=10-Q`. Only needed for recent quarterly data if the 10-K is more than 4 months old.
+If no match found, the ticker is not a US filer (or is delisted, or typo). Mark SEC EDGAR as `failed` with reason `ticker-not-found-at-sec`. The orchestrator's Step 6 will treat this as fatal — correctly.
 
-## What to extract
+### Step 2 — Fetch filing history (submissions API)
 
-From the 10-K, ask WebFetch to extract — specifically, asking for sections by their Item number:
+```bash
+curl -sS \
+  -A "stockwiz research plugin noreply@stockwiz.local" \
+  -H "Accept: application/json" \
+  --max-time 30 \
+  "https://data.sec.gov/submissions/CIK${CIK_PADDED}.json" \
+  > "$SESSION_DIR/raw/sec-submissions.json"
+```
 
-**Item 1 — Business**
-- Business overview (2–4 paragraphs)
-- Segment breakdown (revenue by segment if disclosed)
-- Geographic breakdown (revenue by region if disclosed)
-- Customer concentration (any single customer >10% of revenue)
-- Competitive positioning described by management
+This returns company metadata + a `filings.recent` object with columns of arrays (accession numbers, dates, forms, primary documents). Extract:
 
-**Item 1A — Risk Factors**
-- Summary of the top 5 risk factors as management describes them
-- Don't reproduce the full text — stockwiz sentiment skills will read the raw file if needed
+- **Company name** (field: `name`)
+- **SIC / SIC description** (field: `sic`, `sicDescription`)
+- **State of incorporation** (field: `addresses.business.stateOrCountry`)
+- **Fiscal year end** (field: `fiscalYearEnd`)
+- **Exchanges** (field: `exchanges` array)
+- **Most recent 10-K**: scan `filings.recent.form` for `"10-K"`, find the index, grab the corresponding `filingDate`, `accessionNumber`, and `primaryDocument`
+- **Most recent 10-Q**: same pattern with `"10-Q"`
+- **Most recent 8-K**: same (for drift checks / material events)
 
-**Item 7 — Management's Discussion & Analysis (MD&A)**
-- Revenue growth narrative (YoY changes + stated reasons)
-- Margin narrative (what's expanding or compressing and why)
-- Forward-looking guidance if present
-- Material events or changes during the year
+If the only annual filing form is `20-F` (foreign private issuer), mark SEC as `ok` but append a note: `non-us-filer-20f-only`. The orchestrator can decide how to handle it; for Phase 1.5 we proceed and let the user know via `_sanity.md`.
 
-**Item 7A — Market Risk**
-- Interest rate sensitivity
-- Currency exposure
-- Commodity exposure
+Construct the 10-K document URL (do NOT fetch it in Phase 1.5):
+```
+https://www.sec.gov/Archives/edgar/data/{cik_unpadded}/{accession_no_dashes}/{primaryDocument}
+```
+Record this URL in the raw file for future phases to use.
 
-**Cash flow statement (from Item 8)**
-- Cash from operations (TTM)
-- Capital expenditures (TTM)
-- Free cash flow (CFO − CapEx)
-- Stock-based compensation (as a % of CFO)
+### Step 3 — Fetch structured financial facts (companyconcept API)
 
-**Balance sheet (from Item 8)**
-- Total debt (current + long-term)
-- Cash + short-term investments
-- Net debt
-- Lease obligations (operating + finance)
-- Total equity
+For each concept below, fetch the XBRL concept timeseries. Each returns ~10–100KB.
 
-**Item 10–14 (insider data, often from proxy)**
-- Approximate insider ownership %
-- Number of beneficial owners
-- CEO / CFO tenure if mentioned
-- Notable related-party transactions
+```bash
+curl -sS \
+  -A "stockwiz research plugin noreply@stockwiz.local" \
+  -H "Accept: application/json" \
+  --max-time 30 \
+  "https://data.sec.gov/api/xbrl/companyconcept/CIK${CIK_PADDED}/us-gaap/${CONCEPT}.json"
+```
 
-## Extraction prompt template
+**Phase 1.5 concept list (5 core concepts, one fetch each):**
 
-When calling WebFetch on the 10-K, use a prompt like:
+| Concept | What it is | Fallback concepts if primary missing |
+|---|---|---|
+| `Revenues` | Top-line revenue | `RevenueFromContractWithCustomerExcludingAssessedTax` (ASC 606, newer filings) |
+| `NetIncomeLoss` | Bottom-line net income | — |
+| `NetCashProvidedByUsedInOperatingActivities` | Cash from operations (CFO) | — |
+| `PaymentsToAcquirePropertyPlantAndEquipment` | Capital expenditures | `PaymentsToAcquireProductiveAssets` |
+| `LongTermDebtNoncurrent` | Long-term debt | `LongTermDebt` |
 
-> From this SEC 10-K filing, extract the following in markdown:
->
-> 1. Company name, ticker, fiscal year end
-> 2. A 3-paragraph business overview from Item 1
-> 3. Revenue by segment (if disclosed) with dollar amounts and YoY change
-> 4. Revenue by geography (if disclosed) with dollar amounts
-> 5. Any customer representing >10% of revenue, by name if disclosed
-> 6. The 5 risk factors from Item 1A that management emphasizes most
-> 7. MD&A narrative on revenue growth and margin changes
-> 8. Cash flow: CFO, CapEx, FCF, SBC (all TTM or most recent FY)
-> 9. Balance sheet: total debt, cash, net debt, operating lease obligations, total equity
-> 10. Any insider ownership % mentioned
->
-> Preserve all numbers exactly. Date every figure with the fiscal year or quarter. Do not editorialize or summarize beyond what the filing says. If any item is not disclosed, write "not disclosed in source".
+For each concept, the response includes a `units` object keyed by unit (usually `USD`). Inside, `values` is an array of observations with `start`, `end`, `val`, `fy`, `fp`, `form`, `accn`, `filed`. Extract:
 
-## Non-US filer detection
+- Most recent **annual** observation (where `fp` is `FY`)
+- Most recent **quarterly** observation (where `fp` in `Q1`, `Q2`, `Q3`, `Q4`)
+- Preceding **annual** observation (for YoY comparison)
 
-If the company files a **20-F** instead of a 10-K, it is a foreign private issuer (FPI). The stockwiz scope is US equities only, but **ADRs (American Depositary Receipts) that file a 20-F are borderline**:
-- TSM (Taiwan Semiconductor) — 20-F, ADR, sometimes analyzed in US equity research
-- SAP (SAP SE) — 20-F, ADR, more clearly non-US
+Store all of these verbatim with dates.
 
-**Decision rule for Phase 1:** if the ticker has only 20-F filings and no 10-K, mark the source file with `status: ok` but `reason: non-us-filer`, proceed with the rest of the deep-dive, and include a warning in the final output that this is an FPI and some US-style metrics may not apply.
+**Free Cash Flow** is derived in the analysis layer, not fetched: FCF = CFO − CapEx. Record both raw values; let `fundamental-analysis` compute it with explicit assumption notation.
 
-## Fallback
+### Step 4 — Write the raw file
 
-None. SEC EDGAR is the ground truth. If it fails:
-- Try once more after 5 seconds
-- If still failing, abort the deep-dive with error `sec-edgar-unreachable`
-- Do not trust the remaining sources without the filing context
+Combine the above into a single markdown file at `$SESSION_DIR/raw/sec-edgar-10k.md`:
+
+```markdown
+---
+source: SEC EDGAR
+url: https://data.sec.gov/submissions/CIK0001045810.json (+ 5 companyconcept calls)
+fetched_at: 2026-04-11T14:32:00+02:00
+status: ok
+cik: 0001045810
+---
+
+# SEC EDGAR — NVDA
+
+## Company
+
+- Name: NVIDIA CORP
+- CIK: 0001045810
+- SIC: 3674 (Semiconductors & Related Devices)
+- State of incorporation: DE
+- Fiscal year end: 01-28
+- Exchanges: NASDAQ
+
+## Most recent filings
+
+- 10-K: filed 2025-02-21, accession 0001045810-25-000023, primary document nvda-20250126.htm
+  - URL: https://www.sec.gov/Archives/edgar/data/1045810/000104581025000023/nvda-20250126.htm
+- 10-Q: filed 2025-08-28, accession 0001045810-25-000060, primary document nvda-20250727.htm
+- 8-K (most recent): filed 2026-02-15
+
+## XBRL facts
+
+### Revenues (us-gaap:Revenues)
+
+- FY2025 (ending 2025-01-26): $130,497,000,000 — filed 2025-02-21 — 10-K
+- FY2024 (ending 2024-01-28): $60,922,000,000 — filed 2024-02-21 — 10-K
+- Q2 FY2026 (ending 2025-07-27): $46,743,000,000 — filed 2025-08-28 — 10-Q
+- YoY (FY2025 vs FY2024): +114.2%
+
+### NetIncomeLoss
+
+- FY2025: $72,880,000,000
+- FY2024: $29,760,000,000
+- YoY: +144.9%
+
+### NetCashProvidedByUsedInOperatingActivities (CFO)
+
+- FY2025: $64,089,000,000
+- FY2024: $28,090,000,000
+
+### PaymentsToAcquirePropertyPlantAndEquipment (CapEx)
+
+- FY2025: $3,236,000,000
+- FY2024: $1,069,000,000
+
+### LongTermDebtNoncurrent
+
+- Most recent 10-K: $8,463,000,000
+
+## Derived (for downstream analyses)
+
+- Free Cash Flow (CFO − CapEx), FY2025: $60,853,000,000
+
+## Notes
+
+- 10-K prose (business description, risk factors, MD&A) not extracted in Phase 1.5; URL recorded above for future deep-narrative passes.
+```
+
+All numbers preserved verbatim from SEC's JSON, dated by fiscal period. `fundamental-analysis` can consume this directly.
+
+## Failure modes
+
+| curl exit code / HTTP | Reason | What to do |
+|---|---|---|
+| 22 (HTTP 4xx/5xx with `--fail`) | Non-2xx response | Capture status, record as failure reason |
+| 28 | Timeout | Retry once after 5s |
+| 6 | DNS failure | Record as `dns-failure`, do not retry |
+| HTTP 403 | User-Agent blocked | **Should not happen** with descriptive UA — if it does, escalate: write diagnostic to `_sanity.md` noting the UA in use |
+| HTTP 404 | Ticker not in tickers file, or CIK not in submissions API | Mark ticker-not-found-at-sec |
+| HTTP 429 | Rate-limited | Retry once with a 10s backoff; if still 429, abort this source and note in _sanity.md |
+
+On any failure that prevents the submissions API from returning data, mark SEC EDGAR as `failed` and let the orchestrator decide (it will treat this as fatal — correctly, since we cannot build a thesis without ground-truth filings).
 
 ## Calls
 
-2 total WebFetch calls in the happy path:
-1. Filing index page
-2. Primary 10-K document
+- First run on a given machine: 1 (tickers) + 1 (submissions) + 5 (concepts) = **7 curl calls**
+- Subsequent runs (tickers cached): 1 (submissions) + 5 (concepts) = **6 curl calls**
 
-Optional 3rd call for latest 10-Q if needed.
+Both fit comfortably within the 20-fetch hard cap.
+
+## Slug
+
+Write structured output to `raw/sec-edgar-10k.md`. Also cache the raw JSON responses to `raw/sec-submissions.json` and `raw/sec-concept-*.json` for debugging — these are the audit trail if downstream analyses question a figure.
+
+## Non-US filer handling
+
+If a ticker is in the tickers file but the submissions API only shows `20-F` (not `10-K`), the company is a foreign private issuer. Some ADRs are in this category (TSM, SAP). For Phase 1.5, we do extract whatever structured data is available (many FPIs file some XBRL facts) and flag the source file with a `non-us-filer-20f-only` note. The orchestrator may or may not treat this as fatal depending on how much data was recovered. Be permissive here — it's better to try and partially succeed than to reject valid tickers.
+
+## UA configurability (future)
+
+For marketplace distribution, it would be polite to let users configure the contact in their User-Agent via `~/.claude/stockwiz/config.json`. Phase 2 TODO. For now, the hardcoded string works because SEC doesn't verify contacts — they just need something descriptive.

@@ -59,7 +59,7 @@ Write the initial `$SESSION_DIR/meta.json`:
   "ticker": "<TICKER>",
   "mode": "full",
   "horizon": "<HORIZON>",
-  "commandVersion": "0.1.0",
+  "commandVersion": "0.1.1",
   "createdAt": "<ISO 8601 with offset>",
   "status": "started",
   "stages": [],
@@ -84,7 +84,7 @@ Use `TodoWrite` to create the pipeline stages. This gives the user visibility in
 5. Finalize session metadata
 ```
 
-Phase 1 note: the thesis-discipline skill runs, but analysis skills (fundamental-analysis, sentiment-synthesis, peer-comparison, risk-screen) are Phase 2. In Phase 1, the thesis is built directly from the raw files with placeholder analysis.
+Phase 1.5 note: the thesis-discipline skill runs, but analysis skills (fundamental-analysis, sentiment-synthesis, peer-comparison, risk-screen) are Phase 2. In Phase 1.5, the thesis is built directly from the 6 raw source files with placeholder analysis sections in the HTML.
 
 Mark stage 1 as in_progress.
 
@@ -99,7 +99,9 @@ Use the `Task` tool to invoke the `deep-researcher` subagent. Pass it this promp
 > SESSION_DIR: <absolute path to SESSION_DIR>
 > MODE: full
 >
-> This is a Phase 1 run. Fetch only the 3 Phase 1 sources per the source-extraction skill: SEC EDGAR (10-K), Yahoo Finance (quote + key-statistics), and Finviz (quote.ashx snapshot). Follow the source-extraction/SKILL.md rate limits and failure detection rules. Write each fetched source to SESSION_DIR/raw/ per the file output convention and update SESSION_DIR/meta.json.sources after each fetch.
+> This is a Phase 1.5 run. Fetch the 6 Phase 1.5 sources per the source-extraction skill, in order: SEC EDGAR (curl + JSON APIs), Finviz (WebFetch), Stockanalysis (curl + lynx), Yahoo Finance (curl + quoteSummary JSON API), Simply Wall Street (WebSearch + curl + lynx), Seeking Alpha (curl + lynx). Each source's reference file prescribes the exact tool and URLs — use those. Do not substitute WebFetch for curl on gated sources (SEC, Yahoo) — that's why Phase 1 failed. Follow the source-extraction/SKILL.md rate limits and failure detection rules. Write each fetched source to SESSION_DIR/raw/ per the file output convention and update SESSION_DIR/meta.json.sources after each fetch.
+>
+> SEC EDGAR is the only fatal source — if it fails, stop fetching and set meta.json.status to "failed". All other source failures are non-fatal.
 >
 > Return a compact summary (≤300 words) with succeeded sources, failed sources + reasons, absolute file paths, and any cross-source sanity flags. Do NOT include raw content in your return.
 
@@ -112,19 +114,26 @@ Wait for the subagent to return. Read its summary.
    ```json
    { "stage": "deep-researcher", "startedAt": "...", "endedAt": "...", "status": "ok", "succeeded": N, "failed": M }
    ```
-3. **If `status` is `failed`** (zero sources succeeded), jump to Step 11 (fatal error).
-4. **If `status` is `degraded`** (<3 successes) and SEC EDGAR specifically failed, also jump to Step 11 — without SEC filings we don't have a ground-truth record.
-5. Otherwise, mark stage 1 complete in TodoWrite and proceed.
+3. **If SEC EDGAR failed** (check `meta.json.sources["sec-edgar"].status == "failed"`), jump to Step 11 (fatal error). SEC is the ground-truth source — without it, no thesis.
+4. **If fewer than 3 sources succeeded in total**, also jump to Step 11 — there's not enough data to build a credible Phase 1.5 thesis even with the non-fatal sources intact.
+5. Otherwise, mark stage 1 complete in TodoWrite and proceed. It is fine (and expected) that some of SWS, SA, Yahoo may have failed — the thesis can still be built from the remaining sources.
 
 ## Step 7 — Stage 2: Synthesize thesis with thesis-discipline
 
-In Phase 1, we skip the four analysis skills (fundamental, sentiment, peer, risk) and go directly from raw data to the thesis. The thesis-discipline skill will read raw files directly and produce the best thesis it can with the available data.
+In Phase 1.5, we skip the four analysis skills (fundamental, sentiment, peer, risk — those are Phase 2) and go directly from raw data to the thesis. The thesis-discipline skill will read raw files directly and produce the best thesis it can with the available data.
 
-Load the `thesis-discipline` skill (read `${CLAUDE_PLUGIN_ROOT}/skills/thesis-discipline/SKILL.md`) and follow its `full` mode instructions. In Phase 1, the inputs are:
+Load the `thesis-discipline` skill (read `${CLAUDE_PLUGIN_ROOT}/skills/thesis-discipline/SKILL.md`) and follow its `full` mode instructions. In Phase 1.5, the inputs are whichever of these succeeded:
 
-- `$SESSION_DIR/raw/sec-edgar-10k.md` (if `status: ok`)
-- `$SESSION_DIR/raw/yahoo-fundamentals.md` (if `status: ok`)
-- `$SESSION_DIR/raw/finviz-snapshot.md` (if `status: ok`)
+- `$SESSION_DIR/raw/sec-edgar-10k.md` (always present — SEC failure is fatal, so if we got here it's `ok`)
+- `$SESSION_DIR/raw/finviz-snapshot.md`
+- `$SESSION_DIR/raw/stockanalysis.md`
+- `$SESSION_DIR/raw/yahoo-fundamentals.md`
+- `$SESSION_DIR/raw/simply-wall-street.md`
+- `$SESSION_DIR/raw/seeking-alpha.md`
+
+Check each file's frontmatter for `status: ok` before including it in the thesis inputs. Skip files with `status: failed`.
+
+For Phase 1.5, the SWS risks list and SA factor grades are particularly valuable — they're where "alternative view" signal comes from. The thesis-discipline skill should incorporate them into the bear case disconfirmers and the sentiment-related claims in the bull/base cases, respectively.
 
 Produce `$SESSION_DIR/thesis.md` with the mandatory sections from the skill:
 
@@ -174,9 +183,13 @@ Use the `Task` tool to invoke the `report-writer` subagent. Pass:
 > SESSION_DIR: <absolute path>
 > TEMPLATE: deep-dive
 >
-> This is a Phase 1 run. The session has raw/ files (SEC EDGAR, Yahoo Finance, Finviz) and a synthesized thesis.md, but no analysis/ files and no devils-advocate appendix. Follow the deep-dive template reference at skills/report-generation/references/deep-dive-template.md, using the Phase 1 section set: hero, snapshot, three cases, kill switches, Phase 1 placeholders for fundamentals/sentiment/peers/risk/assumption-ledger, unknowns, sources, disclaimer.
+> This is a Phase 1.5 run. The session has raw/ files for up to 6 sources (SEC EDGAR, Finviz, Stockanalysis, Yahoo Finance, Simply Wall Street, Seeking Alpha — check each file's frontmatter for status: ok before using it) and a synthesized thesis.md. No analysis/ files yet (Phase 2) and no devils-advocate appendix (Phase 2). Follow the deep-dive template reference at skills/report-generation/references/deep-dive-template.md, using the Phase 1.5 section set: hero, snapshot, three cases, kill switches, Phase 2 placeholders for fundamentals/sentiment/peers/risk/assumption-ledger, unknowns, sources, disclaimer.
 >
-> Run the compliance pass per skills/report-generation/references/compliance-rules.md before writing. Abort with error if the pass fails after 3 iterations.
+> The snapshot strip cards should draw from whichever sources succeeded — prefer Finviz for most fields, Yahoo quoteSummary JSON for enterprise value and forward P/E, SEC for the big balance-sheet numbers. The sources section at the bottom must list all successful sources with their fetched_at timestamps.
+>
+> Pay special attention to SWS risks and SA factor grades if those sources succeeded — they're the Phase 1.5 signal uplift over Phase 1. SWS risks belong in the bear case or the Unknowns section; SA factor grades belong in the sentiment placeholder with a neutral-language framing.
+>
+> Run the compliance pass per skills/report-generation/references/compliance-rules.md before writing. Abort with error if the pass fails after 3 iterations. Remember that SA's "Strong Buy" label and Yahoo's `recommendationKey` string must be wrapped in <q> tags.
 >
 > Return a compact summary with file path, byte count, sections present, compliance rewrites applied, and sanity check results.
 
@@ -255,9 +268,17 @@ If any fatal error occurs (deep-researcher returned zero successes, SEC EDGAR un
 
 ## Edge cases
 
-- **Ticker that doesn't exist.** SEC EDGAR will return "no filings". deep-researcher will mark that source failed with reason `404` or `no-filings`. If Yahoo and Finviz also fail to resolve the ticker, status becomes `failed` and you jump to Step 11 with message: "No SEC filings found for <TICKER>. Verify it is a US-listed equity. Some non-US ADRs may use a 20-F filing — Phase 1 does not auto-fall-back to 20-F; try a well-known US ticker like NVDA first."
+- **Ticker that doesn't exist.** SEC EDGAR (via curl + `company_tickers.json`) will not find the ticker in the mapping file. deep-researcher marks the source failed with reason `ticker-not-found-at-sec`. This is fatal — jump to Step 11 with message: "No SEC filings found for <TICKER>. Verify it is a US-listed equity."
 
-- **Non-US filer (20-F only).** SEC EDGAR reference file detects this and marks the source with reason `non-us-filer`. In Phase 1, treat this as a failure of SEC EDGAR and jump to Step 11 — we don't yet have 20-F extraction patterns.
+- **Non-US filer (20-F only).** In Phase 1.5 we try to extract whatever structured data is available from SEC (many FPIs file some XBRL facts) and flag the source with a note. The orchestrator proceeds if any data was recovered, else treats it as a fatal SEC failure.
+
+- **lynx not installed.** Stockanalysis, SWS, and SA reference files all prefer lynx for HTML→text conversion. If lynx is missing, deep-researcher falls back to Read-with-limit on the raw HTML file. This is slower and less clean but still functional. The deep-researcher's Step 2.5 prerequisite check notes the missing tool; the agent's summary should mention it so the user knows why certain extractions are thinner than they could be.
+
+- **curl not installed.** Hard dependency for Phase 1.5. deep-researcher's Step 2.5 aborts with `curl-not-installed`. User needs to install curl (should be present on every macOS and Linux system by default).
+
+- **SEC company_tickers.json fetch fails on first run.** The cache doesn't exist yet. If the fetch fails with a 403 (UA issue) or network error, treat as fatal SEC failure and jump to Step 11 — no CIK lookup means no SEC at all.
+
+- **Cookie jar leaks.** Yahoo's fetch creates a cookie jar tempfile. It should be deleted after Yahoo finishes (success or failure). If you notice `/tmp/stockwiz-yahoo-cookies.*` files accumulating over many runs, that's a cleanup bug worth fixing.
 
 - **Same-ticker same-second.** The timestamp includes seconds, so collisions are extremely unlikely. If one does occur (mkdir fails with EEXIST), append a short suffix and retry once.
 
@@ -267,6 +288,6 @@ If any fatal error occurs (deep-researcher returned zero successes, SEC EDGAR un
 
 ## What success looks like
 
-The user runs `/stockwiz NVDA`. They see a todo list updating as stages complete. They see a short progress message from deep-researcher ("fetched SEC 10-K, Yahoo key-stats, Finviz snapshot"). They see a thesis synthesis note. They see a report-writer completion message. They get a final summary with three case headlines, a kill switch or two, and a pointer to the HTML file. They open `~/.claude/stockwiz/sessions/NVDA-*/report.html` in their browser, see a clean, disclaimer-footed research brief with three equal-weight columns. They come back to the chat and ask "what's the insider ownership?" — the main context uses Grep + Read to pull the answer from `raw/finviz-snapshot.md` with a citation.
+The user runs `/stockwiz NVDA`. They see a todo list updating as stages complete. They see a short progress message from deep-researcher ("SEC EDGAR ok via curl + JSON APIs; Finviz ok; Stockanalysis ok; Yahoo JSON API ok; SWS snowflake + 5 risks ok; Seeking Alpha quant + factor grades ok — 6 of 6"). They see a thesis synthesis note drawing on numeric data from SEC and Stockanalysis, on sentiment from SWS risks and SA factor grades, and on quick-look ratios from Finviz. They see a report-writer completion message noting the compliance pass rewrote two source labels into `<q>` tags. They get a final summary with three case headlines, a kill switch or two, and a pointer to the HTML file. They open `~/.claude/stockwiz/sessions/NVDA-*/report.html` in their browser, see a clean, disclaimer-footed research brief with three equal-weight columns, 6 sources listed in the bottom section, and SWS's risk list fleshing out the bear case. They come back to the chat and ask "what's the insider ownership?" — the main context uses Grep + Read to pull the answer from `raw/finviz-snapshot.md` with a citation, no re-fetch.
 
-That's the Phase 1 bar.
+That's the Phase 1.5 bar.

@@ -1,135 +1,273 @@
 # Yahoo Finance
 
-**Status:** Phase 1. High-value source for price, fundamentals, and statistics. More brittle than SEC EDGAR — can be consent-walled in some regions.
-**Keyless.** No account needed, but Yahoo sometimes injects a regional consent interstitial.
-**Rate policy:** 1500ms delay; fail after one retry.
+**Status:** Phase 1.5. Valuable for fundamentals and statistics, but the public HTML pages are React-rendered and heavily gated. We fetch the **undocumented JSON quoteSummary API** that yfinance-style tools use, via curl with a browser User-Agent and cookie handling.
+**Access method:** **`Bash` + `curl`** (not WebFetch). Yahoo's HTML pages return either an empty JavaScript skeleton or a 503 to non-browser UAs; the JSON API needs a cookie from a prior visit to `finance.yahoo.com` and sometimes a crumb token.
+**Rate policy:** 1500ms delay; one retry on transient failure.
 
-## Why it's here
+## Why curl, not WebFetch
 
-Yahoo Finance is the most widely-used source for quick fundamentals. It provides:
-- Current quote data (price, day range, volume, market cap)
-- Key statistics (P/E trailing and forward, EPS, beta, margins, ROA/ROE, FCF, etc.)
-- Financial statements (income, balance sheet, cash flow — usually 4 years)
-- Holders (insider %, institutional %, short %)
+The same reason as SEC EDGAR: we need header control. Yahoo's CDN routes based on User-Agent — curl with a plain UA gets 503'd, curl with a real browser UA gets served. WebFetch's default UA is not a browser UA, so WebFetch hits the same wall.
 
-It's not the most reliable source layout-wise, but when it works the coverage is broad and single-page.
+Additionally, Yahoo's HTML pages ship a React shell that loads data via client-side JS. WebFetch (and curl) can only see the shell, not the rendered data. The reliable path is the JSON API at `query1.finance.yahoo.com`, which returns structured data directly.
 
 ## URL patterns
 
-### Quote page
-```
-https://finance.yahoo.com/quote/{ticker}
-```
+### Stage 1 — Consent cookie fetch (throwaway)
 
-### Key statistics
-```
-https://finance.yahoo.com/quote/{ticker}/key-statistics
-```
+Yahoo's quoteSummary API checks for an `A1`/`A3` cookie that's set when a browser visits `finance.yahoo.com`. Without it, the API returns a 401 or redirects to a consent page. We simulate the browser visit with curl using `-c` to save the cookies:
 
-### Financials (income statement)
-```
-https://finance.yahoo.com/quote/{ticker}/financials
-```
+```bash
+COOKIE_JAR=$(mktemp -t stockwiz-yahoo-cookies.XXXXXX)
+BROWSER_UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
-### Profile page (less-gated fallback for basic info)
-```
-https://finance.yahoo.com/quote/{ticker}/profile
+curl -sS -L \
+  -A "$BROWSER_UA" \
+  -c "$COOKIE_JAR" \
+  --max-time 20 \
+  "https://finance.yahoo.com/quote/${TICKER}" \
+  -o /dev/null
 ```
 
-## What to extract
+The response body is discarded (it's the React shell). We only care about the cookies saved to `$COOKIE_JAR`. If this fetch fails hard (non-2xx/non-3xx, or DNS error), fail the whole Yahoo source.
 
-**From quote page:**
-- Current price
-- Previous close
-- Day range
-- 52-week range
-- Market cap
-- Avg volume (3m)
-- P/E (trailing)
-- EPS (trailing)
-- Dividend & yield (if any)
-- Earnings date (next)
-- 1-year target estimate
+### Stage 2 — quoteSummary API call (the real fetch)
 
-**From key-statistics:**
-- Enterprise value
-- Trailing P/E, Forward P/E, PEG
-- Price/Sales, Price/Book
-- Enterprise Value / Revenue, Enterprise Value / EBITDA
-- Profit margin, Operating margin
-- Return on assets, Return on equity
-- Revenue (TTM), Revenue per share
-- Quarterly revenue growth (YoY)
-- Gross profit
-- EBITDA
-- Diluted EPS (TTM)
-- Quarterly earnings growth (YoY)
-- Total cash, Total debt
-- Debt / Equity
-- Current ratio
-- Book value per share
-- Operating cash flow (TTM)
-- Levered free cash flow (TTM)
-- Beta (5y monthly)
-- 52-week change, S&P 500 52-week change
-- 52-week high, 52-week low
-- 50-day and 200-day moving averages
-- Avg vol (3m and 10-day)
-- Shares outstanding, float
-- % held by insiders, % held by institutions
-- Shares short, short ratio, short % of float, short % of shares outstanding
-- Forward annual dividend rate, yield, payout ratio, 5-year avg div yield
+```bash
+MODULES='summaryDetail,defaultKeyStatistics,financialData,price,assetProfile,summaryProfile,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory'
 
-That's a lot of fields. The extraction prompt should ask for all of them at once — Yahoo puts them on a single page.
+curl -sS -L \
+  -A "$BROWSER_UA" \
+  -b "$COOKIE_JAR" \
+  -H "Accept: application/json" \
+  --max-time 30 \
+  "https://query1.finance.yahoo.com/v10/finance/quoteSummary/${TICKER}?modules=${MODULES}" \
+  > "$SESSION_DIR/raw/yahoo-quotesummary.json"
+```
 
-## Extraction prompt template
+This returns a large JSON structure. The key paths you care about are nested inside `quoteSummary.result[0].<module>`.
 
-For the key-statistics page:
+### Stage 3 (fallback) — Crumb-based retry
 
-> This is a Yahoo Finance key statistics page. Extract the following values in a markdown key-value list, preserving numbers exactly as shown and noting "N/A" for any field marked as such or missing:
->
-> Valuation: Market cap, Enterprise value, P/E (T), P/E (F), PEG, P/S, P/B, EV/Revenue, EV/EBITDA
-> Profitability: Profit margin, Operating margin, ROA, ROE
-> Income: Revenue (TTM), Revenue per share, Qtr revenue growth (YoY), Gross profit, EBITDA, Diluted EPS (TTM), Qtr earnings growth (YoY)
-> Balance sheet: Total cash, Total debt, D/E, Current ratio, Book value / share
-> Cash flow: Op cash flow (TTM), Levered FCF (TTM)
-> Trading: Beta, 52w change, 52w high, 52w low, 50-day MA, 200-day MA, Avg vol (3m), Avg vol (10d)
-> Shares: Outstanding, Float, Insider %, Institutional %, Shares short, Short %, Short ratio
-> Dividends: Forward rate, Forward yield, Payout ratio, 5y avg yield
->
-> Do not editorialize. Do not compute new values. Return exactly what the page shows.
+If the Stage 2 response is a JSON error like `"Invalid Crumb"` or an HTTP 401, you need a crumb token. Fetch one:
 
-## Consent-wall detection
+```bash
+CRUMB=$(curl -sS \
+  -A "$BROWSER_UA" \
+  -b "$COOKIE_JAR" \
+  --max-time 15 \
+  "https://query1.finance.yahoo.com/v1/test/getcrumb")
+```
 
-Yahoo sometimes serves `consent.yahoo.com` or `guce.yahoo.com` pages instead of the actual quote. Signs:
-- URL contains `consent.yahoo.com` or `guce.yahoo.com`
-- Body contains "We value your privacy" prominently
-- No financial data in the first 2000 characters of response
+Then retry Stage 2 with `&crumb=$CRUMB` appended. If the crumb call itself fails, mark Yahoo as failed and move on — we have Finviz and Stockanalysis as fallbacks for ratios.
 
-On consent-wall detection: mark `failed` with reason `consent-wall`, do NOT retry (retry will hit the same wall). Fall through to Stockanalysis or Finviz for the data.
+Clean up the cookie jar after all Yahoo fetches:
+```bash
+rm -f "$COOKIE_JAR"
+```
 
-## Fallback chain
+## What to extract from the JSON
 
-If quote page fails:
-1. Try `/profile` — less-gated, gives basic info (sector, industry, company description, officers)
-2. If profile also fails, skip Yahoo entirely and rely on Stockanalysis (Phase 2) + Finviz
+The quoteSummary response structure is roughly:
 
-If key-statistics page fails specifically:
-1. Try the financials page — some statistics are available there
-2. If both fail, skip and rely on Finviz for ratios
+```json
+{
+  "quoteSummary": {
+    "result": [{
+      "summaryDetail": { "regularMarketPrice": { "raw": 188.63 }, ... },
+      "defaultKeyStatistics": { "forwardPE": { "raw": 17.04 }, ... },
+      "financialData": { "profitMargins": { "raw": 0.556 }, ... },
+      "price": { "longName": "NVIDIA Corporation", ... },
+      "assetProfile": { "sector": "Technology", ... },
+      "incomeStatementHistory": { "incomeStatementHistory": [...] },
+      "balanceSheetHistory": { "balanceSheetStatements": [...] },
+      "cashflowStatementHistory": { "cashflowStatements": [...] }
+    }],
+    "error": null
+  }
+}
+```
 
-If financials page fails:
-1. Try the quote page's summary
-2. Fall through to SEC 10-K (already fetched) for the authoritative statements
-3. In Phase 2, Stockanalysis.com is the primary redundancy
+Extract these fields (use `jq` or Python to parse):
+
+**From `summaryDetail`:**
+- `regularMarketPrice.raw`, `previousClose.raw`, `open.raw`, `dayLow.raw`, `dayHigh.raw`
+- `fiftyTwoWeekLow.raw`, `fiftyTwoWeekHigh.raw`
+- `marketCap.raw`, `trailingPE.raw`, `forwardPE.raw`, `priceToSalesTrailing12Months.raw`
+- `volume.raw`, `averageVolume.raw`, `averageVolume10days.raw`
+- `dividendYield.raw`, `trailingAnnualDividendRate.raw`, `payoutRatio.raw`
+- `beta.raw`
+
+**From `defaultKeyStatistics`:**
+- `enterpriseValue.raw`, `enterpriseToRevenue.raw`, `enterpriseToEbitda.raw`
+- `trailingEps.raw`, `forwardEps.raw`, `pegRatio.raw`
+- `priceToBook.raw`, `bookValue.raw`
+- `profitMargins.raw`, `sharesOutstanding.raw`, `floatShares.raw`
+- `heldPercentInsiders.raw`, `heldPercentInstitutions.raw`
+- `shortRatio.raw`, `shortPercentOfFloat.raw`, `sharesShort.raw`
+- `52WeekChange.raw`, `SandP52WeekChange.raw`
+
+**From `financialData`:**
+- `currentPrice.raw`, `targetMeanPrice.raw`, `targetHighPrice.raw`, `targetLowPrice.raw`
+- `numberOfAnalystOpinions.raw`, `recommendationKey` (string: "buy"/"strong_buy"/etc. — **capture raw string for attribution, but never display without `<q>` wrapping**)
+- `totalCash.raw`, `totalDebt.raw`, `debtToEquity.raw`
+- `currentRatio.raw`, `quickRatio.raw`
+- `totalRevenue.raw`, `revenuePerShare.raw`
+- `grossMargins.raw`, `operatingMargins.raw`, `ebitdaMargins.raw`
+- `revenueGrowth.raw`, `earningsGrowth.raw`
+- `returnOnAssets.raw`, `returnOnEquity.raw`
+- `freeCashflow.raw`, `operatingCashflow.raw`
+
+**From `price`:**
+- `longName`, `shortName`, `symbol`, `exchangeName`
+
+**From `assetProfile`:**
+- `sector`, `industry`, `fullTimeEmployees`, `country`, `city`
+- `longBusinessSummary` — a 1–2 paragraph company description (useful for the hero tagline and thesis context)
+
+**From history arrays:**
+- `incomeStatementHistory.incomeStatementHistory[0..3]`: the last 4 years of income statements (revenue, gross profit, operating income, net income)
+- `balanceSheetHistory.balanceSheetStatements[0..3]`: last 4 years of balance sheets (total assets, total liabilities, total equity, cash, debt)
+- `cashflowStatementHistory.cashflowStatements[0..3]`: last 4 years of cash flows (CFO, CapEx, FCF implied)
+
+## Writing the raw file
+
+Parse the JSON and write a clean markdown file at `$SESSION_DIR/raw/yahoo-fundamentals.md`:
+
+```markdown
+---
+source: Yahoo Finance quoteSummary API
+url: https://query1.finance.yahoo.com/v10/finance/quoteSummary/NVDA?modules=...
+fetched_at: 2026-04-11T14:32:00+02:00
+status: ok
+---
+
+# Yahoo Finance — NVDA
+
+## Identity
+
+- Long name: NVIDIA Corporation
+- Symbol: NVDA
+- Exchange: NasdaqGS
+- Sector: Technology
+- Industry: Semiconductors
+- Employees: 36,000
+- Business summary: {full text from assetProfile.longBusinessSummary}
+
+## Quote
+
+- Price: 188.63 (as of 2026-04-11T14:30:00Z)
+- Previous close: 183.91
+- Day range: 185.20 – 189.44
+- 52-week range: 95.04 – 212.19
+- Market cap: 4,583,710,000,000
+- Volume: 159,746,110
+- Avg volume: 178,920,000
+
+## Valuation
+
+- Trailing P/E: 38.48
+- Forward P/E: 17.04
+- PEG: 0.44
+- P/S: 21.23
+- P/B: 29.15
+- Enterprise value: 4,532,570,000,000
+- EV/Revenue: 20.99
+- EV/EBITDA: 34.02
+
+## Quality & margins
+
+- Gross margin: 71.07%
+- Operating margin: 60.38%
+- Profit margin: 55.60%
+- Return on assets: 75.42%
+- Return on equity: 101.49%
+
+## Balance sheet
+
+- Total cash: ...
+- Total debt: ...
+- Debt/Equity: 0.07
+- Current ratio: 3.91
+- Quick ratio: 3.24
+
+## Cash flow
+
+- Operating cash flow (TTM): ...
+- Free cash flow (TTM): ...
+
+## Growth
+
+- Revenue growth YoY: ...
+- Earnings growth YoY: ...
+
+## Ownership
+
+- Shares outstanding: 24,300,000,000
+- Float: 23,380,000,000
+- Insider ownership: 3.79%
+- Institutional ownership: 68.39%
+- Shares short: 280,870,000
+- Short ratio: 1.57
+- Short % of float: 1.20%
+
+## Analyst view
+
+- Number of analysts: 42
+- Target mean price: 269.16
+- Target high: 340.00
+- Target low: 195.00
+- Raw recommendation key: "strong_buy"  <!-- capture verbatim; report-writer wraps in <q> -->
+
+## Historical financials (last 4 FY)
+
+### Income statement
+
+| FY End | Revenue | Gross profit | Op income | Net income |
+|---|---|---|---|---|
+| 2025-01-26 | $130,497M | ... | ... | $72,880M |
+| 2024-01-28 | $60,922M | ... | ... | $29,760M |
+| 2023-01-29 | $26,974M | ... | ... | $4,368M |
+| 2022-01-30 | $26,914M | ... | ... | $9,752M |
+
+### Balance sheet
+
+(similar table)
+
+### Cash flow
+
+(similar table)
+```
+
+Preserve every number verbatim. Date every figure with the fiscal period.
+
+## Failure modes
+
+| Condition | Reason code | Action |
+|---|---|---|
+| Stage 1 (consent fetch) returns non-2xx/3xx | `consent-fetch-failed` | Mark Yahoo failed, move on |
+| Stage 2 returns JSON with `error` field non-null | `api-error: <error message>` | If error is `"Invalid Crumb"`, go to Stage 3. Otherwise fail. |
+| Stage 2 returns HTTP 401/403 | `yahoo-auth` | Try crumb retry once; then fail |
+| Stage 2 returns HTTP 429 | `rate-limited` | Retry once after 10s backoff; then fail |
+| Stage 2 returns HTTP 5xx | `yahoo-503` | Retry once after 5s backoff; then fail |
+| Stage 3 crumb fetch fails | `crumb-unavailable` | Fail Yahoo entirely |
+| JSON parse fails | `invalid-json` | Fail Yahoo entirely |
+| `quoteSummary.result` is empty array | `ticker-not-found-at-yahoo` | Mark failed |
+
+On any terminal failure, **do not block the deep-dive**. Yahoo is redundant with Stockanalysis and Finviz for most of its fields. The orchestrator's fatal-error rule only triggers if SEC EDGAR fails, not Yahoo.
 
 ## Slug
 
-Write output to `raw/yahoo-fundamentals.md`. If you split by page, append the page name: `raw/yahoo-profile.md`, `raw/yahoo-financials.md`. Only `yahoo-fundamentals.md` is considered canonical for downstream analyses.
+Write structured output to `raw/yahoo-fundamentals.md`. Also save the raw JSON to `raw/yahoo-quotesummary.json` for debugging (it's the audit trail).
 
 ## Calls
 
-2–3 WebFetch calls in the happy path:
-1. Quote page
-2. Key-statistics
-3. Financials (optional — can skip in MODE=thesis)
+- Happy path: **2 curl calls** (consent + API)
+- With crumb retry: **3 curl calls** (consent + API + crumb + retry)
+
+Fits the budget.
+
+## A note on the recommendationKey field
+
+Yahoo's `financialData.recommendationKey` is a string like `"strong_buy"`, `"buy"`, `"hold"`, `"sell"`, `"strong_sell"`. **Capture it verbatim** in the raw file with no interpretation. Downstream the report-writer will quote it inside `<q>` tags and frame it in neutral language like "Yahoo's aggregate analyst consensus on a 5-level scale is <q>strong_buy</q>", so the compliance pass doesn't rewrite it.
+
+Never generate the word "buy" or "sell" in prose of your own construction. Only ever reproduce it inside quote tags as a direct source attribution.

@@ -32,24 +32,47 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/source-extraction/SKILL.md` to understand rat
 
 ### Step 2 — Build the fetch plan
 
-**MODE=full — Phase 1 sources (3 total):**
-1. SEC EDGAR (`references/sec-edgar.md`) — 10-K filing
-2. Yahoo Finance (`references/yahoo-finance.md`) — quote, key-statistics
-3. Finviz (`references/finviz.md`) — quote.ashx snapshot
+**MODE=full — Phase 1.5 sources (6 total):**
 
-**MODE=full — Phase 2+ (11 total, when references exist):**
-Add Stockanalysis, Macrotrends, Simply Wall Street, Zacks, Seeking Alpha, TradingView, Google Finance, Reddit (per reference files).
+Fetch in this order. Each source uses the tool prescribed in its reference file — do not substitute WebFetch for curl or vice versa.
+
+| # | Source | Tool | Reference |
+|---|---|---|---|
+| 1 | **SEC EDGAR** | **Bash + curl** (JSON APIs) | `references/sec-edgar.md` |
+| 2 | **Finviz** | **WebFetch** | `references/finviz.md` |
+| 3 | **Stockanalysis.com** | **Bash + curl + lynx** | `references/stockanalysis.md` |
+| 4 | **Yahoo Finance** | **Bash + curl** (quoteSummary JSON API) | `references/yahoo-finance.md` |
+| 5 | **Simply Wall Street** | **WebSearch + Bash + curl + lynx** | `references/simply-wall-street.md` |
+| 6 | **Seeking Alpha** | **Bash + curl + lynx** | `references/seeking-alpha.md` |
+
+SEC and Finviz come first because they are the two most reliable. SEC is the only source whose failure is fatal — the orchestrator aborts the deep-dive if it cannot reach SEC. All other sources can individually fail without blocking the run.
 
 **MODE=thesis — reduced set:**
-SEC EDGAR 10-K (summary only), Yahoo Finance key-statistics, Finviz snapshot.
+SEC EDGAR (core concepts only), Finviz, Yahoo Finance JSON API. Skip Stockanalysis, SWS, SA unless specifically asked.
 
 **MODE=compare — per-ticker reduced set:**
-Yahoo Finance key-statistics, Finviz snapshot. SEC EDGAR only if not already fetched for this ticker in another session today.
+Finviz, Yahoo Finance JSON API, Stockanalysis. SEC EDGAR only if not already fetched for this ticker in another session today (check via `ls ~/.claude/stockwiz/sessions/${TICKER}-*/raw/sec-edgar-10k.md 2>/dev/null`). Skip SWS and SA in compare mode — they're too slow to do per ticker.
 
 **MODE=revisit — minimal:**
-Yahoo Finance quote, Finviz snapshot, plus a WebSearch for last-30-days news. Files prefixed `revisit-YYYYMMDD-`.
+Finviz + Yahoo Finance JSON API + 30-day news WebSearch. Files prefixed `revisit-YYYYMMDD-`.
 
-**FRED is never in your fetch plan.** It's only called by the `macro-context` skill.
+**MODE=bear — reduced set:**
+Same as MODE=thesis, but with an emphasis on short interest (Finviz + Yahoo API) and SEC filings for any recent 8-Ks (fetch submissions API specifically looking at the most recent 8-K entries).
+
+**Phase 2+ sources (NOT in your fetch plan for Phase 1.5):**
+Google Finance, Zacks, TradingView, Macrotrends, Reddit. References for these don't exist yet.
+
+**FRED is never in your fetch plan.** It's only called by the `macro-context` skill when a specific series is needed.
+
+### Step 2.5 — Check for prerequisites
+
+Before starting the fetch loop, verify tooling:
+
+1. **curl**: run `which curl` via Bash. If missing, abort with error `curl-not-installed` — this is a hard dependency for Phase 1.5.
+2. **lynx**: run `which lynx` via Bash. If missing, note it — Stockanalysis, SWS, SA, will fall back to raw-HTML Read which uses more tokens but still works. Do NOT abort.
+3. **jq** or **python3** (either suffices): needed for parsing SEC JSON. Check `which jq` then `which python3`. If neither is present, abort with error `json-parser-missing`.
+4. **SEC CIK cache**: check if `~/.claude/stockwiz/cache/company_tickers.json` exists and is less than 30 days old. If not, the SEC fetch step will populate it on the first call.
+5. **Tempdir for cookies**: `mkdir -p ~/.claude/stockwiz/cache` (idempotent).
 
 ### Step 3 — TodoWrite your plan
 
@@ -57,27 +80,49 @@ Create a todo list with one item per source. Mark in-progress before each fetch,
 
 ### Step 4 — Fetch sources sequentially (NOT in parallel)
 
-For each source in the plan, in order:
+For each source in the plan, in order. The fetch mechanics differ by source — follow the reference file exactly.
 
-1. **Rate limit.** Wait at least **1500ms** since your last WebFetch. If you just ran another fetch, run `Bash sleep 1.5`. Don't spin-wait.
-2. **Construct URL.** Follow the URL pattern in the source's reference file. Substitute `{ticker}` (always uppercase).
-3. **Call WebFetch.** Pass the URL and a prompt that asks only for the specific data points listed in the reference file. **Do NOT ask WebFetch to "analyze" or "recommend" or "interpret"** — ask it to **extract**. Phrase your prompt like "extract the following fields from this page in a markdown key-value list, preserving numbers verbatim".
-4. **Detect failure.** Before treating the response as successful, check for the failure signatures listed in `source-extraction/SKILL.md`: Cloudflare challenge pages, consent walls (`consent.yahoo.com`, "We value your privacy"), 403/429, empty responses, redirect loops, login walls. If detected, **do not retry a second time** — mark failed and move on.
-5. **On failure:** write the file anyway with `status: failed` frontmatter and reason, then update `meta.json.sources[<slug>] = { status: "failed", url, reason, fetched_at }`. Proceed to the next source.
-6. **On success:** write to `SESSION_DIR/raw/<source-slug>.md` using the exact slug convention from `source-extraction/SKILL.md`. File format:
+**Universal rules (apply to every source):**
+
+1. **Rate limit.** Wait at least **1500ms** since your last fetch (WebFetch OR curl; they share the budget). If unsure, run `Bash sleep 1.5`. Never spin-wait.
+2. **Read the reference file first.** Before fetching, open `skills/source-extraction/references/<source>.md` so you know the exact URLs, headers, and extraction targets.
+3. **Detect failure.** Check the response for the failure patterns listed in `source-extraction/SKILL.md`. On any failure signature, stop fetching that source.
+4. **One retry maximum per source.** If a source fails its first attempt AND a retry is called for by its reference file (503/429/timeout), sleep the prescribed backoff and retry once. Cloudflare challenges and 403s are NOT retry-able.
+5. **Write failure stubs.** On terminal failure, write the file with `status: failed` frontmatter, update `meta.json.sources[<slug>]`, and move on to the next source. Never block the pipeline on one source (except SEC EDGAR, see below).
+6. **Write success files verbatim.** The file format is:
    ```markdown
    ---
    source: <human-readable name>
-   url: <the URL you fetched>
+   url: <the URL(s) you fetched>
    fetched_at: <ISO 8601 timestamp with offset>
    status: ok
    ---
 
    # {Source name} — {TICKER}
 
-   {Extracted content, structured as specified. Preserve numbers verbatim. Date every figure.}
+   {Extracted content. Preserve numbers verbatim. Date every figure.}
    ```
-7. **Update meta.json.** After each successful fetch, Read the current `meta.json`, add the source entry with `{ status, url, fetched_at, file }`, Write it back. (Yes, read-modify-write for each source — it's slow but keeps meta.json consistent if you crash mid-run.)
+7. **Update meta.json** after every fetch (success or failure): Read current, modify `sources[<slug>]`, Write back. Keeps state consistent if you crash mid-run.
+
+**Source-specific mechanics:**
+
+- **SEC EDGAR (curl + JSON APIs):** See `references/sec-edgar.md`. This is 6–7 curl calls: one-time `company_tickers.json` cached in `~/.claude/stockwiz/cache/`, one `submissions/CIK{cik}.json`, and 5 `companyconcept/.../us-gaap/{concept}.json` calls. Use `jq` or `python3` to parse each JSON response and build the raw markdown file. **If SEC EDGAR fails, mark the source failed AND set meta.json.status to `"failed"` and stop fetching.** The orchestrator will see this and abort the deep-dive.
+
+- **Finviz (WebFetch):** One WebFetch call per `references/finviz.md`. Phase 1 worked fine, nothing changes.
+
+- **Stockanalysis (curl + lynx):** 3 curl calls per `references/stockanalysis.md` (overview, financials, statistics). Pipe each through `lynx -stdin -dump -width=140`. If `lynx` is unavailable, save raw HTML to a tempfile and Read it with an offset/limit.
+
+- **Yahoo Finance (curl + cookies + JSON API):** 2-3 curl calls per `references/yahoo-finance.md`. First call is a throwaway to `finance.yahoo.com/quote/{ticker}` with `-c cookie_jar` to get the consent cookie. Second call is `query1.finance.yahoo.com/v10/finance/quoteSummary/...` with `-b cookie_jar` to get the JSON. Clean up the cookie jar when done.
+
+- **Simply Wall Street (WebSearch + curl + lynx):** First resolve the canonical URL via `WebSearch` with `site:simplywall.st {TICKER}`. Then curl the resulting URL with a browser UA and pipe through lynx. See `references/simply-wall-street.md`.
+
+- **Seeking Alpha (curl + lynx):** 1-2 curl calls per `references/seeking-alpha.md`, piped through lynx. Public sections only (ratings + factor grades). Do NOT attempt to fetch article bodies.
+
+**Detecting SEC EDGAR fatality:**
+
+After the SEC EDGAR step, check if the source was marked failed. If it was, set `meta.json.status = "failed"`, include a clear error note in your return summary, and **stop fetching further sources**. The orchestrator's fatal-error path will kick in on Step 6 and the whole deep-dive aborts. This is by design — a thesis without SEC ground truth is a thesis built on vendor opinions.
+
+All other sources are non-fatal. If Finviz, Stockanalysis, Yahoo, SWS, or SA fail individually, continue to the next source.
 
 ### Step 5 — Cross-source sanity check
 
@@ -131,13 +176,16 @@ These are enforced operational invariants. Violations corrupt the pipeline.
 1. **Never fabricate a number.** If a source didn't disclose a value, write "not disclosed in source" or leave the field empty. NEVER synthesize a plausible-looking number.
 2. **Never editorialize.** Phrases like "this is a strong company", "the balance sheet looks healthy", "analysts are optimistic" never appear in any file you write. You are a librarian.
 3. **Never fetch the same URL twice in one run.** If the URL is in a file you already wrote, skip.
-4. **Max 20 WebFetch calls total per session.** Hard cap. If you are approaching it, stop and return with what you have.
-5. **Max 2 WebSearch calls.** Only used to resolve canonical URLs for sources whose reference files require it (Phase 2+ sources 4 and 10).
-6. **One retry per source, maximum.** If a source fails twice, mark it failed and move on. Retries burn the rate-limit budget and rarely help — Cloudflare challenges don't go away in 1.5 seconds.
+4. **Max 25 total fetches per session** (WebFetch + curl combined). Hard cap. If you are approaching it, stop and return with what you have.
+5. **Max 2 WebSearch calls.** Only used to resolve canonical URLs (e.g. Simply Wall Street).
+6. **One retry per source, maximum.** If a source fails its first attempt and a retry is warranted (503/429/timeout), retry once after the prescribed backoff. Cloudflare challenges and 403s are NOT retry-able. Retries burn the rate-limit budget and rarely help — Cloudflare challenges don't go away in 1.5 seconds.
 7. **1500ms between fetches.** Always. No exceptions. Use `Bash sleep 1.5` when in doubt.
 8. **Never call tools other than those in your frontmatter.** You have Read, Write, Glob, Grep, WebFetch, WebSearch, Bash, TodoWrite. You do NOT have Task — you are not allowed to delegate to other subagents.
 9. **meta.json updates are append-safe.** Always Read first, modify, Write. Never Write without reading the current state — you could clobber an entry.
 10. **Never write to `SESSION_DIR/analysis/` or `SESSION_DIR/thesis.md`.** Those belong to the analysis skills and thesis-discipline. You write only to `SESSION_DIR/raw/` and `SESSION_DIR/meta.json`.
+11. **Use the tool prescribed by each source's reference file.** SEC EDGAR uses curl — do not use WebFetch. Yahoo uses curl — do not use WebFetch. Finviz uses WebFetch — do not use curl (it's working fine). Mixing tools wastes budget and breaks extraction prompts.
+12. **Clean up after yourself.** Cookie jars, tempfiles under `/tmp/stockwiz-*`, and lynx dumps should be deleted when you're done (except the audit-trail files in `SESSION_DIR/raw/`). Use `rm -f` to avoid errors on non-existent files.
+13. **SEC EDGAR failure is fatal — stop fetching.** Other source failures are non-fatal and you continue to the next source.
 
 ## A note on source integrity
 
