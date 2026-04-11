@@ -99,24 +99,25 @@ Do not persist the consent. This is a gentle gate on intent, not a legal waiver.
 
 ## Step 7 — Print the quickstart
 
-Show the user how to actually use stockwiz. Five lines, one per command:
+Show the user how to actually use stockwiz. Keep it to the two commands that actually exist — do not promise features that aren't wired.
 
 ```
 ──────── Quick start ────────
 
-/stockwiz NVDA                     Full deep-dive on NVIDIA
-/stockwiz-thesis AAPL              Short-form bull/base/bear on Apple
-/stockwiz-compare NVDA AMD INTC    Multi-ticker comparison (Phase 3)
-/stockwiz-bear TSLA                Adversarial pass on Tesla (Phase 3)
-/stockwiz-monitor META             Schedule weekly revisit (Phase 4)
+/stockwiz NVDA                         Full deep-dive on NVIDIA (long horizon)
+/stockwiz NVDA --horizon=swing         Same deep-dive weighted for swing trades
+/stockwiz AAPL                         Try any US ticker
 
-Sessions live in ~/.claude/stockwiz/sessions/
-Each report is a self-contained HTML file you can open in any browser.
+Sessions live in ~/.claude/stockwiz/sessions/<TICKER>-<timestamp>/
+Each run produces a self-contained report.html you can open offline.
+
+After a run completes, ask follow-up questions in this same chat and
+stockwiz will answer from the session workspace without re-fetching.
 
 ─────────────────────────────
 ```
 
-Note to user: in the current version (0.1.0 Phase 1), only `/stockwiz NVDA` is fully wired; the other commands are coming in subsequent phases. The Phase 1 deep-dive uses 3 sources (SEC EDGAR, Yahoo Finance, Finviz) and produces a walking-skeleton HTML report.
+If the user asks about other commands (`/stockwiz-compare`, `/stockwiz-bear`, etc.) — they are planned but not yet built. Point them at the Roadmap section of the README. Do NOT pretend they work.
 
 ## Step 8 — Done
 

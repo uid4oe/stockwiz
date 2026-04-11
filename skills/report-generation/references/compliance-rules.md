@@ -95,3 +95,83 @@ The rules are applied in **table order** (most-specific first), which matters be
 ## Extension
 
 When the HTML spot-check during verification catches a new problematic phrase, add it here with a neutral rewrite and re-run the reports. The compliance list is explicitly a living document.
+
+---
+
+## Pre-filter guidance for skill authors
+
+This section is the **canonical reference** for skills and subagents that write content which will later pass through the compliance pass. If you are writing a new skill or agent that produces prose destined for the HTML report (analysis files, thesis, adversarial output), read this section and link to it from your SKILL.md rather than duplicating the banned-phrase list in your own file.
+
+### The principle
+
+The compliance pass (run by `report-writer` Step 8 before writing `report.html`) rewrites banned imperative language and wraps quoted source text in `<q>` tags. You, the skill author, should **pre-filter** your output so the compliance pass has little to do. Pre-filtering is not a safety net — the compliance pass is the safety net. Pre-filtering is an efficiency and clarity concern: every phrase that gets rewritten by the compliance pass is a phrase whose original wording was lost, and every iteration of the pass burns tokens.
+
+### Phrases to avoid generating
+
+You should never generate these in your own prose (i.e. not quoted from a source):
+
+- `buy` / `sell` / `recommend` / `recommendation` / `should buy` / `should sell` as imperatives or advice
+- `guaranteed` / `risk-free` as claims about an investment
+- `undervalued` / `overvalued` as standalone claims
+- `moonshot` / `to the moon` / `N-bagger` / `bagger`
+- `safe` as applied to an investment ("a safe stock")
+- `no risk` / `can't lose` / `pump` / `dump`
+- `hot stock` / `hot pick` / `free money` / `easy money`
+- `next Amazon` / `next Nvidia` pattern
+
+### Phrases to use instead
+
+- Instead of "buy X" → **"consider X"** or "X is analytically interesting"
+- Instead of "sell X" → **"re-evaluate X"** or "X warrants re-evaluation"
+- Instead of "recommend X" → **"analysis suggests X"** or "the analytical view is X"
+- Instead of "should buy" → **"may consider"**
+- Instead of "will return 20%" → **"may see 20% returns"** or "has the potential for 20% returns"
+- Instead of "guaranteed" → **"likely"** or "indicated by the data"
+- Instead of "risk-free" → **"lower-risk"**
+- Instead of "undervalued" → **"trading below framing"** or "trading below peer median"
+- Instead of "overvalued" → **"trading above framing"**
+- Instead of "safe investment" → **"lower-volatility position"**
+
+### Quoting source text
+
+When you need to reproduce a source label verbatim — e.g. "Seeking Alpha Quant Rating: Strong Buy", "Yahoo recommendationKey: strong_buy", "Zacks Rank 1 (Strong Buy)", "SWS flags 'high non-cash earnings'" — capture the label verbatim in your markdown WITHOUT `<q>` tags. The report-writer wraps source labels in `<q>` tags at render time based on the source slug, which makes the compliance pass skip them. Your job is to preserve attribution, not to sanitize the source.
+
+Example: in your analysis file, write
+
+```
+Seeking Alpha's Quant Rating is "Strong Buy" (4.75 on a 1-5 scale, higher = more positive).
+```
+
+The report-writer will render this as:
+
+```html
+<p>Seeking Alpha's Quant Rating is <q>Strong Buy</q> (4.75 on a 1-5 scale, higher = more positive).</p>
+```
+
+The compliance pass sees `<q>Strong Buy</q>` and leaves it alone.
+
+### Industry terminology is exempt
+
+These words look banned under a naive regex but are legitimate industry terminology. The compliance pass explicitly exempts them, and you may use them freely in prose:
+
+- `sell-side` / `buy-side` (research desks and asset managers)
+- `buyback` / `share buyback` (corporate action)
+- `sell-through` (retail metric)
+- `sales` / `sales growth` (revenue terminology)
+- `seller` / `buyer` (descriptive nouns)
+- `safe harbor` / `safe haven` (financial terms)
+
+### Why pre-filter?
+
+1. **Preserves author voice.** A thesis paragraph that you wrote with specific wording is more coherent than the same paragraph after the compliance pass has rewritten three words.
+2. **Reduces compliance-pass churn.** The pass loops up to 3 times applying rewrites. If you pre-filter, it usually completes in 1 iteration with zero rewrites — faster and cleaner.
+3. **Improves reader clarity.** "Analysis suggests this stock is trading below framing" reads deliberately. "This is a buy — you should definitely consider it" (auto-rewritten to "This is a consider — you should definitely consider it") reads like a machine mangled it.
+4. **Aligns mental models.** Pre-filtering encourages skill authors to think analytically rather than advisorially from the start. The compliance pass is a guard against drift, not a substitute for discipline.
+
+### What to link from your SKILL.md
+
+Instead of duplicating the banned list in your skill's Hard Rules section, add a one-line reference:
+
+> **No banned imperative language.** See `compliance-rules.md` § "Pre-filter guidance for skill authors" for the canonical list of phrases to avoid and their neutral alternatives. The compliance pass is a safety net; your output should not trigger it.
+
+This gives every skill a single source of truth for compliance guidance and makes adding new banned phrases a one-place edit.

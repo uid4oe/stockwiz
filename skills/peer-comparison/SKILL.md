@@ -1,6 +1,6 @@
 ---
 name: peer-comparison
-description: This skill should be used when constructing a comparison of a US equity against its sector/industry peers on valuation, quality, growth, and risk. Produces a peer comp table with direction-of-goodness annotations, business-mix caveats, and explicit source citations. In Phase 2, peers are inferred from available data (SWS competitor snowflakes, Finviz industry tagging) rather than fetched fresh.
+description: This skill should be used when constructing a comparison of a US equity against its sector/industry peers on valuation, quality, growth, and risk. Produces a peer comp table with direction-of-goodness annotations, business-mix caveats, and explicit source citations. Peers are inferred from available data (SWS competitor snowflakes, Finviz industry tagging) rather than fetched fresh.
 version: 0.1.0
 ---
 
@@ -10,7 +10,7 @@ The "relative context" skill. A ticker looks expensive or cheap only relative to
 
 ## When to use
 
-Loaded by `/stockwiz` in deep-dive mode (as a single-ticker peer framing) or by `/stockwiz-compare` in multi-ticker mode (as a cross-ticker comp table).
+Loaded by the `/stockwiz` orchestrator at Stage 2c in deep-dive mode (single-ticker peer framing from SWS competitor snowflakes). The skill also documents a multi-ticker mode reserved for a future `/stockwiz-compare` command — see Roadmap in README. The multi-ticker spec is dormant; only single-ticker mode is currently exercised.
 
 ## Core principle
 
@@ -22,14 +22,15 @@ Loaded by `/stockwiz` in deep-dive mode (as a single-ticker peer framing) or by 
 - `raw/simply-wall-street.md` — SWS competitor snowflakes (free context on 2–5 peers including SWS scoring)
 - `raw/finviz-snapshot.md` — sector and industry tags for the target ticker
 - `raw/stockanalysis.md` — the target's metrics for the comp table rows
-- `raw/sec-edgar-10k.md` — any peer mentions in business description (when 10-K prose is parsed in Phase 3+)
+- `raw/sec-edgar-10k.md` — any peer mentions in business description (when 10-K prose is parsed in (roadmap))
 - `analysis/fundamental.md` — the target's consolidated numbers (if written before this skill runs)
 
-**For multi-ticker mode (called from `/stockwiz-compare`, each ticker has its own subdir):**
+**For multi-ticker mode (dormant — reserved for a future `/stockwiz-compare` command):**
 - Per-ticker raw files under each ticker's subdir
 - Apply the same comp-table structure across all tickers
+- Not currently exercised; spec preserved here as part of the roadmap
 
-**You do NOT fetch peer data on your own in Phase 2.** The deep-researcher already pulled SWS's competitor snowflakes for free context. Per-peer deep-dives are a user-initiated action (running `/stockwiz <peer>` or `/stockwiz-compare`).
+**You do NOT fetch peer data on your own.** The deep-researcher already pulled SWS's competitor snowflakes for free context. Per-peer deep-dives are a user-initiated action (running `/stockwiz <peer>` for each).
 
 ## Output structure
 
@@ -91,7 +92,7 @@ One paragraph describing where the target sits in the peer set. Example: "On gro
 ## Unknowns
 
 - Private peers not covered (e.g. if target has material private competition like Anthropic, xAI, etc., flag it)
-- Segment-level mix (Phase 3+ with 10-K parsing)
+- Segment-level mix ((roadmap) with 10-K parsing)
 - Customer overlap that would distort competitive framing
 ```
 
@@ -100,18 +101,17 @@ One paragraph describing where the target sits in the peer set. Example: "On gro
 1. **Same columns across rows.** No cherry-picking metrics per ticker. If a peer doesn't disclose a metric, the cell is "—".
 2. **Every cell is dated.** In the markdown, you don't have to date every cell individually (the section header can note "as of {fetch date}"), but if metrics are from different fiscal periods for different peers, disclose it in Caveats.
 3. **Direction-of-goodness annotated.** Every row in the comp table has a Direction column showing which way is favorable. ↑ better (higher is good), ↓ better (lower is good), or n/a (market cap, ticker name).
-4. **Never say "cheap" or "expensive" without comparatives.** "Trading at a P/E below the peer median" is allowed; "cheap" alone is compliance-hazardous.
+4. **No banned imperative language.** See `../report-generation/references/compliance-rules.md` § "Pre-filter guidance for skill authors". Peer-comparison-specific phrases to avoid: **"cheap"** / **"expensive"** without comparatives — "trading at a P/E below the peer median" is allowed; "cheap" alone is compliance-hazardous. Source labels like "Strong Buy" on a peer get `<q>` wrapping at report time; don't generate unquoted advisory prose yourself.
 5. **Caveats section is mandatory.** If you can't think of any caveats, you haven't thought hard enough.
-6. **Phase 2 limitation — thin peer sets.** If SWS competitor snowflakes returned 2 peers, you have 2 peers. Don't fabricate more. Note the thinness in Caveats.
-7. **Respect the compliance pass.** Source labels like "Strong Buy" on a peer get `<q>` wrapping at report time; don't generate unquoted advisory prose.
+6. **Thin peer sets are honest.** If SWS competitor snowflakes returned 2 peers, you have 2 peers. Don't fabricate more. Note the thinness in Caveats.
 
-## Phase 2 limitation to acknowledge
+## Known limitation
 
-In Phase 2, peers come for free from SWS's competitor snowflake section (which is what stockwiz's deep-researcher already fetches). This typically gives 2–3 peers with SWS scoring but not deep metrics on each — you may have a comp table where the target has detailed stockanalysis.com data but the peers only have SWS snowflake scores.
+Peers come for free from SWS's competitor snowflake section (which is what stockwiz's deep-researcher already fetches). This typically gives 2–3 peers with SWS scoring but not deep metrics on each — you may have a comp table where the target has detailed stockanalysis.com data but the peers only have SWS snowflake scores.
 
-That's OK for a Phase 2 walking version. Phase 3 will add a proper "peer fetch" capability where, when the user runs `/stockwiz <target>`, the system identifies 3–5 peers and issues lightweight Finviz fetches for each to build a full-metric comp table.
+That's OK for an initial version. A future phase will add a proper "peer fetch" capability where, when the user runs `/stockwiz <target>`, the system identifies 3–5 peers and issues lightweight Finviz fetches for each to build a full-metric comp table.
 
-The thin-Phase-2 mode should produce a table like:
+The thin-peer mode should produce a table like:
 
 | Metric | NVDA | AMD | ARM |
 |---|---|---|---|

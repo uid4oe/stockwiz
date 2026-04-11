@@ -1,10 +1,10 @@
 # Google Finance + Google News RSS
 
-**Status:** Phase 2.5. Two-part source — Google Finance for quote data (limited SSR value) and **Google News RSS** for high-quality news aggregation. The RSS feed is the primary value here; the Finance page is secondary and often returns an empty JS shell.
+**Status:** active. Two-part source — Google Finance for quote data (limited SSR value) and **Google News RSS** for high-quality news aggregation. The RSS feed is the primary value here; the Finance page is secondary and often returns an empty JS shell.
 **Access method:** **`Bash` + `curl`** with browser User-Agent (Finance) and plain `curl` (News RSS — no UA gating).
 **Rate policy:** 1500ms delay between fetches; one retry on transient failure.
 
-## Why this source is in Phase 2.5
+## Why this source is in the set
 
 stockwiz previously had no dedicated news source — Simply Wall St and Seeking Alpha gave us some narrative, Reddit gave us retail chatter, but nothing was pulling reported, editorially-filtered news. Google News RSS fills that gap:
 
@@ -58,7 +58,7 @@ Fall back to `:NYSE` on 404. Google Finance is very JS-heavy — most of the rea
 - P/E (sometimes)
 - Primary exchange
 
-Don't expect much; this source is redundant for numerical data. Its value in Phase 2.5 is as a cross-check on the ticker's existence and exchange listing, not as a primary data feed.
+Don't expect much; this source is redundant for numerical data. Its value is as a cross-check on the ticker's existence and exchange listing, not as a primary data feed.
 
 ## Fetch
 
@@ -219,7 +219,7 @@ Write to `raw/google-finance.md`. Also save the raw XML to `raw/google-news-feed
 
 ## A note on the publisher distribution metric
 
-The publisher distribution (Reuters X, Bloomberg Y, Seeking Alpha Z...) is a unique Phase 2.5 signal. A stock where the recent news mix is dominated by wire services (Reuters, Bloomberg, AP) is typically in the "something is happening" state — earnings, M&A, regulatory, macro. A stock where the mix is dominated by opinion publishers (Seeking Alpha, Benzinga, Motley Fool) is typically in the "retail narrative" state — momentum, meme, speculation. The two states are both useful to know about and neither is "better" — but they're different signals. The sentiment-synthesis skill should factor this into its recency-weighted news section.
+The publisher distribution (Reuters X, Bloomberg Y, Seeking Alpha Z...) is a unique signal. A stock where the recent news mix is dominated by wire services (Reuters, Bloomberg, AP) is typically in the "something is happening" state — earnings, M&A, regulatory, macro. A stock where the mix is dominated by opinion publishers (Seeking Alpha, Benzinga, Motley Fool) is typically in the "retail narrative" state — momentum, meme, speculation. The two states are both useful to know about and neither is "better" — but they're different signals. The sentiment-synthesis skill should factor this into its recency-weighted news section.
 
 ## Compliance note
 

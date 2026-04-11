@@ -1,6 +1,6 @@
 # SEC EDGAR
 
-**Status:** Phase 1.5, always try first. Most reliable source in the set. Authoritative for US filings.
+**Status:** active. 5, always try first. Most reliable source in the set. Authoritative for US filings.
 **Access method:** **`Bash` + `curl`** (not WebFetch). SEC requires a descriptive User-Agent header per their [fair-access policy](https://www.sec.gov/os/accessing-edgar-data), and WebFetch does not expose header control. curl does.
 **Rate policy:** SEC asks for ≤10 requests/second. stockwiz uses 1500ms delays, well under the limit.
 
@@ -20,9 +20,9 @@ WebFetch in Claude Code sends a default User-Agent that SEC's CDN blocks. SEC's 
 
 **This is the pattern for any source that requires header control.** The `deep-researcher` agent uses curl for SEC EDGAR and Yahoo Finance JSON API; WebFetch is still used for Finviz and any source that accepts default UAs.
 
-## Phase 1.5 approach: structured JSON APIs
+## approach: structured JSON APIs
 
-Instead of scraping the 10-K HTML page (which is ~10MB and fragile), use SEC's structured data APIs. These return small, versioned JSON and give us the numbers we need for a Phase 1.5 thesis without parsing 10MB of HTML. The narrative (business description, risk factors, MD&A prose) is deferred to Phase 2 when we'll add proper 10-K HTML fetching with targeted truncation.
+Instead of scraping the 10-K HTML page (which is ~10MB and fragile), use SEC's structured data APIs. These return small, versioned JSON and give us the numbers we need for a thesis without parsing 10MB of HTML. The narrative (business description, risk factors, MD&A prose) is deferred to when we'll add proper 10-K HTML fetching with targeted truncation.
 
 ## Step-by-step fetch plan
 
@@ -97,13 +97,13 @@ This returns company metadata + a `filings.recent` object with columns of arrays
 - **Most recent 10-Q**: same pattern with `"10-Q"`
 - **Most recent 8-K**: same (for drift checks / material events)
 
-If the only annual filing form is `20-F` (foreign private issuer), mark SEC as `ok` but append a note: `non-us-filer-20f-only`. The orchestrator can decide how to handle it; for Phase 1.5 we proceed and let the user know via `_sanity.md`.
+If the only annual filing form is `20-F` (foreign private issuer), mark SEC as `ok` but append a note: `non-us-filer-20f-only`. The orchestrator decides how to handle it; we proceed and let the user know via `_sanity.md`.
 
-Construct the 10-K document URL (do NOT fetch it in Phase 1.5):
+Construct the 10-K document URL (do NOT fetch it — 10-K HTML prose parsing is on the roadmap):
 ```
 https://www.sec.gov/Archives/edgar/data/{cik_unpadded}/{accession_no_dashes}/{primaryDocument}
 ```
-Record this URL in the raw file for future phases to use.
+Record this URL in the raw file for future deep-narrative passes.
 
 ### Step 3 — Fetch structured financial facts (companyconcept API)
 
@@ -117,7 +117,7 @@ curl -sS \
   "https://data.sec.gov/api/xbrl/companyconcept/CIK${CIK_PADDED}/us-gaap/${CONCEPT}.json"
 ```
 
-**Phase 1.5 concept list (5 core concepts, one fetch each):**
+**concept list (5 core concepts, one fetch each):**
 
 | Concept | What it is | Fallback concepts if primary missing |
 |---|---|---|
@@ -203,7 +203,7 @@ cik: 0001045810
 
 ## Notes
 
-- 10-K prose (business description, risk factors, MD&A) not extracted in Phase 1.5; URL recorded above for future deep-narrative passes.
+- 10-K prose (business description, risk factors, MD&A) not extracted; URL recorded above for future deep-narrative passes (roadmap).
 ```
 
 All numbers preserved verbatim from SEC's JSON, dated by fiscal period. `fundamental-analysis` can consume this directly.
@@ -226,7 +226,7 @@ On any failure that prevents the submissions API from returning data, mark SEC E
 - First run on a given machine: 1 (tickers) + 1 (submissions) + 5 (concepts) = **7 curl calls**
 - Subsequent runs (tickers cached): 1 (submissions) + 5 (concepts) = **6 curl calls**
 
-Both fit comfortably within the 20-fetch hard cap.
+Both fit comfortably within the 35-fetch hard cap.
 
 ## Slug
 
@@ -234,8 +234,8 @@ Write structured output to `raw/sec-edgar-10k.md`. Also cache the raw JSON respo
 
 ## Non-US filer handling
 
-If a ticker is in the tickers file but the submissions API only shows `20-F` (not `10-K`), the company is a foreign private issuer. Some ADRs are in this category (TSM, SAP). For Phase 1.5, we do extract whatever structured data is available (many FPIs file some XBRL facts) and flag the source file with a `non-us-filer-20f-only` note. The orchestrator may or may not treat this as fatal depending on how much data was recovered. Be permissive here — it's better to try and partially succeed than to reject valid tickers.
+If a ticker is in the tickers file but the submissions API only shows `20-F` (not `10-K`), the company is a foreign private issuer. Some ADRs are in this category (TSM, SAP). We extract whatever structured data is available (many FPIs file some XBRL facts) and flag the source file with a `non-us-filer-20f-only` note. The orchestrator may or may not treat this as fatal depending on how much data was recovered. Be permissive here — it's better to try and partially succeed than to reject valid tickers.
 
 ## UA configurability (future)
 
-For marketplace distribution, it would be polite to let users configure the contact in their User-Agent via `~/.claude/stockwiz/config.json`. Phase 2 TODO. For now, the hardcoded string works because SEC doesn't verify contacts — they just need something descriptive.
+For marketplace distribution, it would be polite to let users configure the contact in their User-Agent via `~/.claude/stockwiz/config.json`. TODO. For now, the hardcoded string works because SEC doesn't verify contacts — they just need something descriptive.

@@ -10,30 +10,36 @@ This skill exists because most investment theses are vague in exactly the ways t
 
 ## When to use
 
-You are called by:
-- `/stockwiz` (main command) in **full** mode after the four analysis skills have written their outputs, and again in **reconcile** mode after devils-advocate has written its pass
-- `/stockwiz-thesis` in **full** mode after a reduced analysis pass
-- `/stockwiz-compare` in **relative** mode (3-bullet bull/bear/base per ticker)
-- `/stockwiz-revisit` in **drift** mode to compare a prior thesis to current state
-- `/stockwiz-pivot` in **implicit** mode to extract the latent thesis from an analysis
+You are called by `/stockwiz` (the only command that currently exists) in two passes:
+
+1. **`full` mode** — after the four analysis skills have written their outputs, to synthesize the thesis
+2. **`reconcile` mode** — after devils-advocate has written its pass, to merge the adversarial findings into thesis.md (append-only)
+
+You also support three other modes that are **dormant** — the code is here but no command currently invokes them. They are reserved for future commands in the roadmap:
+
+- **`drift` mode** — will be called by a future `/stockwiz-revisit` command to compare a prior thesis to current state
+- **`implicit` mode** — will be called by a future `/stockwiz-pivot` command to extract the latent thesis
+- **`relative` mode** — will be called by a future `/stockwiz-compare` command for multi-ticker short-form theses
+
+Do not remove the dormant mode specs; they are the contract that future commands will rely on. But do not pretend they run in production today.
 
 ## Four modes
 
 ### Mode: `full`
 Synthesize a complete thesis from analysis files. Write `SESSION_DIR/thesis.md`.
 
-**Phase 2+ inputs (preferred):**
+**inputs (preferred):**
 - `SESSION_DIR/analysis/fundamental.md` — from fundamental-analysis skill
 - `SESSION_DIR/analysis/sentiment.md` — from sentiment-synthesis skill
 - `SESSION_DIR/analysis/peer-comp.md` — from peer-comparison skill
 - `SESSION_DIR/analysis/risk.md` — from risk-screen skill
-- Optionally `SESSION_DIR/analysis/macro.md` if present (Phase 4+)
+- Optionally `SESSION_DIR/analysis/macro.md` if present
 - Reference `SESSION_DIR/raw/*.md` by path for citations, but do not re-read them unless you need a specific figure that isn't summarized in the analyses
 
-**Fallback input mode (Phase 1.5 or if analyses are absent):**
-If the analysis files are missing (e.g. a Phase 1.5 run that skipped the analysis skills), read directly from `SESSION_DIR/raw/` files. This is a degraded mode — note it in the thesis preamble: `*Generated in Phase 1.5 fallback mode — analyses skipped, synthesis direct from raw files.*`
+**Fallback input mode (or if analyses are absent):**
+If the analysis files are missing (e.g. a run that skipped the analysis skills), read directly from `SESSION_DIR/raw/` files. This is a degraded mode — note it in the thesis preamble: `*Generated in raw-only fallback mode — analyses skipped, synthesis direct from raw files.*`
 
-When reading from analyses (Phase 2+), **prefer their content over re-deriving from raw**. The analyses already did the hard work of dating figures, computing derived metrics, and noting source disagreements. Your job is synthesis across the four analytical lenses, not re-computation.
+When reading from analyses, **prefer their content over re-deriving from raw**. The analyses already did the hard work of dating figures, computing derived metrics, and noting source disagreements. Your job is synthesis across the four analytical lenses, not re-computation.
 
 **Output structure (mandatory).** `thesis.md` must contain exactly these sections in this order:
 
@@ -240,7 +246,7 @@ Extract the latent thesis from an existing analysis. Write `SESSION_DIR/analysis
 
 1. **Every factual claim gets a citation** — `[raw/source-file.md#anchor]` or `[analysis/skill.md]`. No uncited numbers.
 2. **Every number is dated.** "Revenue $50.1B (FY2025)" not "Revenue $50.1B".
-3. **No banned phrases** — you are a layer above the compliance pass but you should not generate language that will trigger rewrites. Avoid "recommend", "buy", "sell", "guaranteed", "undervalued", "should buy". Use "analysis suggests", "consider", "re-evaluate", "trading below framing", "may consider".
+3. **No banned imperative language.** See `../report-generation/references/compliance-rules.md` § "Pre-filter guidance for skill authors" for the canonical list and alternatives. Thesis-discipline is the last analytical layer before the HTML report, so your output is usually what the compliance pass sees — pre-filter cleanly.
 4. **Bull and bear get equal rigor.** If the bull case has 3 cited claims and a timeline, the bear case must too. Asymmetric treatment is itself a bias.
 5. **Base case is NOT the average.** It is its own scenario. A good test: if you removed the bull and bear cases, would the base case still make sense as a standalone thesis? If not, rewrite.
 6. **Unknowns are mandatory.** A thesis without a real Unknowns section is dishonest about its confidence.
@@ -248,4 +254,4 @@ Extract the latent thesis from an existing analysis. Write `SESSION_DIR/analysis
 
 ## Pointers into the reference file
 
-For examples of good and bad kill switches by thesis archetype (growth, value, cyclical, turnaround), see `references/kill-switch-examples.md` — but that file is Phase 2+ content. In Phase 1, keep kill switches grounded by following the "metric + threshold + time window" structure above.
+For examples of good and bad kill switches by thesis archetype (growth, value, cyclical, turnaround), see `references/kill-switch-examples.md` — but that file has not been written yet. Keep kill switches grounded by following the "metric + threshold + time window" structure above.

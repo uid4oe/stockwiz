@@ -1,6 +1,6 @@
 # Finviz
 
-**Status:** Phase 1. First-class source — dense quote page, scrape-friendly, low failure rate.
+**Status:** active. First-class source — dense quote page, scrape-friendly, low failure rate.
 **Keyless.** No account needed.
 **Rate policy:** 1500ms delay; fail after one retry.
 

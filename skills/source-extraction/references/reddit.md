@@ -1,6 +1,6 @@
 # Reddit
 
-**Status:** Phase 2.5. Retail sentiment as a **contrarian signal** — not a confirmatory one. Three subreddits covered: r/stocks, r/wallstreetbets, r/investing. Fetched via `.json` API endpoints which are keyless but heavily rate-limited.
+**Status:** active. Retail sentiment as a **contrarian signal** — not a confirmatory one. Three subreddits covered: r/stocks, r/wallstreetbets, r/investing. Fetched via `.json` API endpoints which are keyless but heavily rate-limited.
 **Access method:** **`Bash` + `curl`** with a descriptive User-Agent (Reddit's API TOS requires one). **JSON endpoints**, not HTML scraping.
 **Rate policy:** Reddit throttles unauthenticated requests aggressively. 1500ms between fetches + graceful failure on 429.
 
@@ -19,9 +19,7 @@ For each of the three subreddits:
 
 - **Top 5-10 posts** from the last 30 days that mention the ticker
 - **Per post**: title, upvotes, comment count, post date, permalink
-- **NO comment bodies** — comments on Reddit are 99% noise and 1% insight; we intentionally do not capture them in Phase 2.5
-
-What we don't capture:
+- **NO comment bodies** — comments on Reddit are 99% noise and 1% insight; we intentionally do not capture them . What we don't capture:
 - Post body text (frequently walls of memes, emoji, or lorem-ipsum-grade analysis)
 - Individual user names (privacy + they don't predict anything)
 - Live streaming data (r/wallstreetbets posts come and go in minutes during market hours)

@@ -424,11 +424,11 @@ The Adversarial Pass section uses `class="stockwiz-adversarial"` on the `<div cl
 
 ## Report size targets
 
-- **Phase 2.5 full (10 sources, all analyses, adversarial pass)**: 60–150KB of HTML, inclusive of inline CSS and SVG sparklines
-- **Phase 1.5 fallback (analyses missing)**: 30–50KB with thin sections
+- **full (10 sources, all analyses, adversarial pass)**: 60–150KB of HTML, inclusive of inline CSS and SVG sparklines
+- **raw-only fallback (analyses missing)**: 30–50KB with thin sections
 - **Hard max**: 500KB — anything larger indicates binary content leaking in
 
-## Graceful degradation rule (unchanged from Phase 2)
+## Graceful degradation rule
 
 If any analysis file is missing, render a thin fallback for that section from raw files directly. The report must always be emittable as long as `thesis.md` exists.
 
@@ -447,4 +447,4 @@ The TL;DR is always fully populated. The fold-below sections may be thin.
 4. **Equal visual weight for the three cases**, always — both in the compact TL;DR and in the full details section. Hash-shuffled to prevent anchoring.
 5. **Key insight is curated, not extracted.** The report-writer picks ONE striking fact from the analyses using the heuristic above. Quality over quantity.
 6. **Closest kill switch shows margin of safety explicitly.** The reader knows not just what could break the thesis but how close it is to breaking.
-7. **Biggest unknown is front-loaded.** The thing the analysis can't tell you is as important as the things it can. It goes above the fold, not hidden in a Phase 2 unknowns section.
+7. **Biggest unknown is front-loaded.** The thing the analysis can't tell you is as important as the things it can. It goes above the fold, not hidden in a unknowns section.

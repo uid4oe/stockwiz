@@ -1,6 +1,6 @@
 # Zacks
 
-**Status:** Phase 2.5. Unique data points (Zacks Rank, Style Scores) that are not replicated by any other free source. Historically Cloudflare-challenged — we fail fast on challenge pages and skip rather than fighting.
+**Status:** active. Unique data points (Zacks Rank, Style Scores) that are not replicated by any other free source. Historically Cloudflare-challenged — we fail fast on challenge pages and skip rather than fighting.
 **Access method:** **`Bash` + `curl`** with browser User-Agent. Aggressive failure detection.
 **Rate policy:** 1500ms delay; **zero retries** on Cloudflare challenge (they don't clear in seconds).
 
@@ -25,7 +25,7 @@ Zacks aggressively uses Cloudflare Bot Management. Symptoms:
 
 **stockwiz's policy:** fail fast. If a challenge is detected, mark the source failed with reason `cloudflare-challenge` and move on. Do NOT retry — challenges don't clear in 1.5s. Do NOT try clever header variations — they usually fail too and burn the fetch budget.
 
-Phase 3+ can add headless Chrome fallback for Zacks, but Phase 2.5 accepts Zacks as a best-effort source that may or may not yield data on a given run.
+A future phase can add headless Chrome fallback for Zacks, but today stockwiz accepts Zacks as a best-effort source that may or may not yield data on a given run.
 
 ## URL patterns
 
@@ -39,7 +39,7 @@ Secondary (sometimes has additional data):
 https://www.zacks.com/stock/research/{TICKER}/key-stock-data
 ```
 
-For Phase 2.5, fetch the primary only. If it succeeds and has all the key fields, you're done. If it's missing the Style Scores, optionally try the secondary page.
+fetch the primary only. If it succeeds and has all the key fields, you're done. If it's missing the Style Scores, optionally try the secondary page.
 
 ## Fetch
 
@@ -168,7 +168,7 @@ Write to `raw/zacks-snapshot.md`.
 
 - Happy path: **1 curl call** (primary quote page)
 - With retry on 429: 2 curl calls
-- With secondary page for style-score backfill: 2-3 calls (Phase 2.5 usually stops at 1-2)
+- With secondary page for style-score backfill: 2-3 calls (usually stops at 1-2)
 
 ## Strategic note
 

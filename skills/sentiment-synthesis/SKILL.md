@@ -20,7 +20,7 @@ Loaded by `/stockwiz` after `deep-researcher` and alongside `fundamental-analysi
 
 Check `status: ok` in each file's frontmatter. Skip failed sources.
 
-**Primary sources — news layer (Phase 2.5):**
+**Primary sources — news layer:**
 - `raw/google-finance.md` — **the news layer**. Google News RSS produces up to 20 recent headlines with publishers and publication dates. This is the single most important input for the news timeline and the publisher-distribution shape signal. Read the "Recent news" section and the "Publisher distribution" metric.
 
 **Primary sources — alternative view & proprietary ratings:**
@@ -79,7 +79,7 @@ A single paragraph framing the overall sentiment picture — NOT a single numeri
 
 ## Recency-Weighted News
 
-Vertical dated list of material news items. **Primary source in Phase 2.5 is Google News RSS** from `raw/google-finance.md`, typically 15-20 items. Supplement with SEC 8-K filings (from `raw/sec-edgar-10k.md` submissions metadata) and SA article teaser titles (from `raw/seeking-alpha.md`).
+Vertical dated list of material news items. **Primary source is Google News RSS** from `raw/google-finance.md`, typically 15-20 items. Supplement with SEC 8-K filings (from `raw/sec-edgar-10k.md` submissions metadata) and SA article teaser titles (from `raw/seeking-alpha.md`).
 
 Format:
 - **[YYYY-MM-DD]** (publisher, weight) — headline wrapped in `<q>` for compliance. Citation.
@@ -157,7 +157,7 @@ For each conflict: state both signals with their weights, the source files, and 
 ## Unknowns
 
 - Article body content (paywalled behind Seeking Alpha Premium / WSJ / Bloomberg)
-- Reddit sentiment (Phase 2+)
+- Reddit sentiment
 - Social media activity (X/Twitter, Discord, etc — not scraped)
 - Specific insider transaction $ amounts per person (only net % available from Finviz)
 - Analyst report content beyond ratings and price targets
@@ -170,16 +170,17 @@ For each conflict: state both signals with their weights, the source files, and 
 2. **Conflicts are preserved.** Never pick sides in a source disagreement. List both, weight them, let downstream decide.
 3. **Date every signal.** If a signal isn't dated, note that it's "as-of fetch time" and discount its weight accordingly.
 4. **Source labels go in `<q>` at report time.** In this file, capture "Strong Buy" verbatim without `<q>` tags — that wrapping happens later in report-writer. But do NOT generate your own advisory prose. Use neutral framing everywhere outside direct quotes.
-5. **Never editorialize.** "Investors are worried" is fabrication unless a specific source said it. "SWS's risks list includes 'profit margin decreased' and 'insiders have only sold in the past 3 months'" is a factual restatement.
-6. **Recency decays.** A stale news item from 6 months ago has a quarter of the weight of a current one. State the recency in your framing: "6-month-old analyst report (weight 0.15 after half-life decay)".
-7. **Match signal weight to claim strength.** A weight-0.2 signal should not anchor a strong claim. If your strongest insider-activity signal is from Reddit (weight 0.2), your framing should be "there is some online commentary suggesting" not "investors widely note that".
+5. **No banned imperative language.** See `../report-generation/references/compliance-rules.md` § "Pre-filter guidance for skill authors" for the canonical banned-phrase list and alternatives. Sentiment-synthesis is the skill most likely to generate advisory language by mistake — headlines, analyst quotes, and SWS verdicts are all tempting to paraphrase with imperative verbs. Resist. Keep your prose neutral, wrap source labels verbatim, and let the compliance pass be a backstop rather than a first line of defense.
+6. **Never editorialize.** "Investors are worried" is fabrication unless a specific source said it. "SWS's risks list includes 'profit margin decreased' and 'insiders have only sold in the past 3 months'" is a factual restatement.
+7. **Recency decays.** A stale news item from 6 months ago has a quarter of the weight of a current one. State the recency in your framing: "6-month-old analyst report (weight 0.15 after half-life decay)".
+8. **Match signal weight to claim strength.** A weight-0.2 signal should not anchor a strong claim. If your strongest insider-activity signal is from Reddit (weight 0.2), your framing should be "there is some online commentary suggesting" not "investors widely note that".
 
-## A note on Seeking Alpha in Phase 1.5
+## A note on Seeking Alpha
 
-Phase 1.5 learned that SA's Quant Rating and Factor Grades are client-side-loaded and not in the SSR HTML that `curl + lynx` retrieves. The current raw file often has business description + article teasers but no grades. When this happens:
+Field use revealed that SA's Quant Rating and Factor Grades are client-side-loaded and not in the SSR HTML that `curl + lynx` retrieves. The current raw file often has business description + article teasers but no grades. When this happens:
 
 - Use the article teaser titles as a news proxy (weight 0.3)
 - Note the gap in Unknowns
 - Do NOT fabricate grades from the teasers — they contain opinion words like "Rerating" and "Game Changer" that are emphatically NOT stockwiz-sourced signals
 
-Phase 2+ will either find SA's direct JSON API for factor grades or use headless Chrome to render the page.
+will either find SA's direct JSON API for factor grades or use headless Chrome to render the page.

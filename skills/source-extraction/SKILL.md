@@ -36,13 +36,13 @@ The rule: **use whichever the source's reference file prescribes.** Do not secon
 
 ## Rate-limit envelope
 
-A full deep-dive (MODE=full, Phase 2.5) should fit within this envelope:
+A full deep-dive (MODE=full) should fit within this envelope:
 - **≤35 total fetches** (WebFetch + curl, combined hard cap — abort with error if exceeded)
 - **≤3 total WebSearch calls** (used only to resolve canonical URLs for Simply Wall St, Macrotrends, and optional Google News company-name fallback)
 - **90–150 seconds** of wall-clock time
 - **1500ms** minimum delay between fetches
 
-The Phase 2.5 budget is wider than Phase 1.5 because we went from 6 to 10 sources and some sources use multiple pages (SEC 6-7 API calls, Macrotrends 4 pages, Stockanalysis 3 pages).
+The budget is wide enough to cover 10 sources and some sources use multiple pages (SEC 6-7 API calls, Macrotrends 4 pages, Stockanalysis 3 pages).
 
 **Per-source call budget (happy path):**
 | Source | Calls |
@@ -65,24 +65,24 @@ Degraded run: if **fewer than 3 sources succeed** in the first **10 attempts**, 
 
 ## Source index
 
-Phase 2.5 wires **10 sources**. TradingView remains deferred because it needs a headless browser (JS-rendered). FRED stays in Phase 4 as it's only called by the macro-context skill, not deep-researcher.
+The source set currently wires **10 sources**. TradingView remains deferred because it needs a headless browser (JS-rendered). FRED stays on the roadmap it's only called by the macro-context skill, not deep-researcher.
 
 | # | Source | Reference file | Phase | Tool | Keyless? |
 |---|---|---|---|---|---|
-| 1 | SEC EDGAR | [`references/sec-edgar.md`](references/sec-edgar.md) | Phase 1.5 | **curl** + SEC JSON APIs | yes |
-| 2 | Yahoo Finance | [`references/yahoo-finance.md`](references/yahoo-finance.md) | Phase 1.5 | **curl** + quoteSummary JSON API | yes |
-| 3 | Google Finance + Google News RSS | [`references/google-finance.md`](references/google-finance.md) | Phase 2.5 | **curl** + RSS/lynx | yes |
-| 4 | Simply Wall Street | [`references/simply-wall-street.md`](references/simply-wall-street.md) | Phase 1.5 | **curl** + lynx | yes |
-| 5 | Zacks | [`references/zacks.md`](references/zacks.md) | Phase 2.5 (best-effort) | **curl** + lynx | yes |
-| 6 | Seeking Alpha | [`references/seeking-alpha.md`](references/seeking-alpha.md) | Phase 1.5 (public only) | **curl** + lynx | yes |
-| 7 | TradingView | `references/tradingview.md` | Phase 3+ | likely headless Chrome | yes |
-| 8 | Finviz | [`references/finviz.md`](references/finviz.md) | Phase 1 | **WebFetch** | yes |
-| 9 | Stockanalysis.com | [`references/stockanalysis.md`](references/stockanalysis.md) | Phase 1.5 | **curl** + lynx | yes |
-| 10 | Macrotrends | [`references/macrotrends.md`](references/macrotrends.md) | Phase 2.5 | **curl** + lynx | yes |
-| 11 | FRED | `references/fred.md` | Phase 4 | curl | optional key |
-| 12 | Reddit | [`references/reddit.md`](references/reddit.md) | Phase 2.5 | **curl** + .json endpoints | yes (rate-limited) |
+| 1 | SEC EDGAR | [`references/sec-edgar.md`](references/sec-edgar.md) | | **curl** + SEC JSON APIs | yes |
+| 2 | Yahoo Finance | [`references/yahoo-finance.md`](references/yahoo-finance.md) | | **curl** + quoteSummary JSON API | yes |
+| 3 | Google Finance + Google News RSS | [`references/google-finance.md`](references/google-finance.md) | | **curl** + RSS/lynx | yes |
+| 4 | Simply Wall Street | [`references/simply-wall-street.md`](references/simply-wall-street.md) | | **curl** + lynx | yes |
+| 5 | Zacks | [`references/zacks.md`](references/zacks.md) | (best-effort) | **curl** + lynx | yes |
+| 6 | Seeking Alpha | [`references/seeking-alpha.md`](references/seeking-alpha.md) | (public only) | **curl** + lynx | yes |
+| 7 | TradingView | `references/tradingview.md` | (roadmap) | likely headless Chrome | yes |
+| 8 | Finviz | [`references/finviz.md`](references/finviz.md) | | **WebFetch** | yes |
+| 9 | Stockanalysis.com | [`references/stockanalysis.md`](references/stockanalysis.md) | | **curl** + lynx | yes |
+| 10 | Macrotrends | [`references/macrotrends.md`](references/macrotrends.md) | | **curl** + lynx | yes |
+| 11 | FRED | `references/fred.md` | (roadmap) | curl | optional key |
+| 12 | Reddit | [`references/reddit.md`](references/reddit.md) | | **curl** + .json endpoints | yes (rate-limited) |
 
-## Fetch order for MODE=full (Phase 2.5)
+## Fetch order for MODE=full
 
 Fetch in this order. Earlier sources are more reliable and give you enough to finish a minimum analysis even if later sources fail:
 
@@ -97,11 +97,11 @@ Fetch in this order. Earlier sources are more reliable and give you enough to fi
 9. **Zacks** (curl + lynx) — Zacks Rank + Style Scores, **best-effort, fails fast on Cloudflare**
 10. **Reddit** (curl + .json) — retail sentiment as contrarian signal, weight 0.2
 
-**FRED is never fetched by `deep-researcher`.** It is only called by the `macro-context` skill when a specific series is needed to contextualize a thesis (Phase 4).
+**FRED is never fetched by `deep-researcher`.** It is only called by the `macro-context` skill when a specific series is needed to contextualize a thesis.
 
-**TradingView is deferred to Phase 3+** because it requires headless Chrome to render its client-side data. Its technical rating, analyst ideas, and community comments would be valuable but are unreachable via curl alone.
+**TradingView is deferred to (roadmap)** because it requires headless Chrome to render its client-side data. Its technical rating, analyst ideas, and community comments would be valuable but are unreachable via curl alone.
 
-The order puts SEC and Finviz first (reliable), then the structured-data sources (Stockanalysis, Macrotrends, Yahoo), then the news layer (Google News RSS + Google Finance), then the narrative sources (SWS, SA), then the best-effort sources (Zacks, Reddit). If fetching stops early due to the 25-call cap, we still have the most valuable data.
+The order puts SEC and Finviz first (reliable), then the structured-data sources (Stockanalysis, Macrotrends, Yahoo), then the news layer (Google News RSS + Google Finance), then the narrative sources (SWS, SA), then the best-effort sources (Zacks, Reddit). If fetching stops early due to the 35-call cap, we still have the most valuable data.
 
 ## Failure-mode detection
 
@@ -124,7 +124,7 @@ With curl, check `curl -w "%{http_code}"` and the response body. With WebFetch, 
 | curl exit code 28 | `timeout` | Network timeout; one retry, then fail |
 | curl exit code 6 | `dns-failure` | DNS didn't resolve; do not retry |
 
-## Fallback chains (Phase 1.5)
+## Fallback chains
 
 Some data points are available from multiple sources. Use fallback chains to get the data from wherever works first.
 
@@ -147,7 +147,7 @@ Finviz → Yahoo API
 Simply Wall St (snowflake + risks) → Seeking Alpha (factor grades + quant rating) → Zacks (best-effort rank + style scores)
 
 **News / catalysts:**
-Google News RSS (primary, broad aggregation) → Seeking Alpha article teasers → SEC 8-K material events (Phase 3+)
+Google News RSS (primary, broad aggregation) → Seeking Alpha article teasers → SEC 8-K material events
 
 **Retail sentiment (contrarian signal, weight 0.2):**
 Reddit r/stocks + r/wallstreetbets + r/investing

@@ -39,12 +39,26 @@ Open the resulting `~/.claude/stockwiz/sessions/NVDA-*/report.html` in any brows
 |---|---|
 | `/stockwiz-setup` | One-time onboarding; creates data dirs, shows disclaimer |
 | `/stockwiz <ticker> [--horizon=long\|swing]` | Full deep-dive pipeline, produces HTML report |
-| `/stockwiz-thesis <ticker>` | Short-form bull/bear/base, no HTML |
-| `/stockwiz-compare <t1> <t2> [...]` | Multi-ticker comparison report |
-| `/stockwiz-bear <ticker>` | Adversarial pass on an existing or fresh session |
-| `/stockwiz-pivot <ticker>` | Extract the implicit thesis and find alternative expressions |
-| `/stockwiz-revisit <ticker>` | Compare prior thesis to current state, flag drift |
-| `/stockwiz-monitor <ticker>` | Schedule a weekly revisit |
+
+That's the current command surface. After setup, run `/stockwiz NVDA` (or any US ticker) and stockwiz will fetch 10 sources, run four analysis skills plus an adversarial stress test, and emit a self-contained HTML research brief into `~/.claude/stockwiz/sessions/<TICKER>-<timestamp>/report.html`. You can then ask follow-up questions in the same chat — stockwiz will answer from the durable session workspace without re-fetching.
+
+## Roadmap
+
+These commands are planned but not yet built. References to them elsewhere in the codebase are aspirational — they do not exist at `/stockwiz-*` yet:
+
+- `/stockwiz-thesis <ticker>` — short-form bull/bear/base only, no HTML artifact
+- `/stockwiz-compare <t1> <t2> [...]` — multi-ticker comparison report with a single comp table
+- `/stockwiz-bear <ticker>` — standalone adversarial pass (today, adversarial runs as Stage 4 of `/stockwiz`)
+- `/stockwiz-pivot <ticker>` — extract the implicit investment thesis and surface alternative expressions
+- `/stockwiz-revisit <ticker>` — compare a prior session's thesis to current state, flag drift and triggered kill switches
+- `/stockwiz-monitor <ticker>` — schedule weekly revisit via the scheduled-tasks MCP
+
+Other roadmap items:
+
+- **TradingView source** — requires headless Chrome for JS-rendered content
+- **FRED macro-context skill** — adds rates / commodity / macro series from the St. Louis Fed API
+- **SEC 10-K prose parsing** — currently we extract only XBRL structured facts, not the MD&A / Item 1A narrative
+- **Parallel analysis skills** — currently the four analysis skills run sequentially; a subagent-per-analysis pattern would unlock concurrency and better context isolation
 
 ## Data sources
 

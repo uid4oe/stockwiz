@@ -1,6 +1,6 @@
 # Macrotrends
 
-**Status:** Phase 2.5. Deep historical financials — typically 10Y to 20Y of annual data per company, with consistent columns across years. Complements Stockanalysis (5Y) with longer cycle context.
+**Status:** active. Deep historical financials — typically 10Y to 20Y of annual data per company, with consistent columns across years. Complements Stockanalysis (5Y) with longer cycle context.
 **Access method:** **`Bash` + `curl`** with browser User-Agent + `lynx -dump`. Scrape-friendly, not Cloudflare-gated.
 **Rate policy:** 1500ms delay; one retry on transient failure.
 
@@ -18,7 +18,7 @@ Macrotrends's value for stockwiz:
 - **10Y-20Y ROE / ROA / ROIC history**
 - **Chart URLs** showing visual trends (we don't fetch images, but the URL structure can be recorded)
 
-Phase 2.5 fetches only the revenue, earnings, margin, and FCF pages to stay within the fetch budget. Phase 3+ can add balance sheet and return metrics if needed.
+deep-researcher fetches only the revenue, earnings, margin, and FCF pages to stay within the fetch budget. A future phase can add balance sheet and return metrics if needed.
 
 ## URL resolution
 
@@ -43,7 +43,7 @@ WebSearch: "site:macrotrends.net {TICKER} revenue"
 
 The first result should be the canonical `/stocks/charts/{TICKER}/{slug}/revenue` URL. Extract the `{slug}` component from it and reuse it for all subsequent page fetches.
 
-**Slug cache (Phase 2.5 — self-populating).** stockwiz maintains a persistent slug cache at `~/.claude/stockwiz/cache/macrotrends-slugs.json`. The deep-researcher checks the cache before issuing the WebSearch:
+**Slug cache (self-populating).** stockwiz maintains a persistent slug cache at `~/.claude/stockwiz/cache/macrotrends-slugs.json`. The deep-researcher checks the cache before issuing the WebSearch:
 
 1. Read `~/.claude/stockwiz/cache/macrotrends-slugs.json`. If it doesn't exist, treat as `{}`.
 2. If `cache[TICKER]` is set, use that slug directly — **skip WebSearch entirely**.
@@ -68,9 +68,9 @@ Once you have the slug, fetch these pages (in this order):
 3. `/{TICKER}/{slug}/gross-profit` — 10Y+ gross profit and margin
 4. `/{TICKER}/{slug}/free-cash-flow` — 10Y+ FCF
 
-Stop there for Phase 2.5. Each page returns a tabular display that `lynx -dump` converts cleanly. Total: 4 curl calls.
+Stop there. Each page returns a tabular display that `lynx -dump` converts cleanly. Total: 4 curl calls.
 
-Skip in Phase 2.5 (deferred to Phase 3+):
+Skipped for now (deferred to a future phase):
 - Balance sheet pages (total-assets, total-liabilities, long-term-debt)
 - Return metric pages (roe, roa, roic)
 - Share-count pages

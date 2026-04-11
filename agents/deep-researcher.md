@@ -1,6 +1,6 @@
 ---
 name: deep-researcher
-description: Use this agent to systematically fetch equity research data from multiple public web sources into a session workspace. It handles per-source failure gracefully, preserves numbers verbatim, and returns a compact summary plus file paths — never raw content. Invoked by /stockwiz, /stockwiz-thesis, /stockwiz-compare, /stockwiz-bear, and /stockwiz-revisit.
+description: Use this agent to systematically fetch equity research data from multiple public web sources into a session workspace. It handles per-source failure gracefully, preserves numbers verbatim, and returns a compact summary plus file paths — never raw content. Currently invoked only by /stockwiz; the agent supports reduced fetch plans (MODE=thesis/compare/revisit/bear) for future commands that are not yet built.
 model: sonnet
 color: blue
 tools: Read, Write, Glob, Grep, WebFetch, WebSearch, Bash, TodoWrite
@@ -32,7 +32,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/source-extraction/SKILL.md` to understand rat
 
 ### Step 2 — Build the fetch plan
 
-**MODE=full — Phase 2.5 sources (10 total):**
+**MODE=full — current sources (10 total):**
 
 Fetch in this order. Each source uses the tool prescribed in its reference file — do not substitute WebFetch for curl or vice versa.
 
@@ -63,7 +63,7 @@ Finviz + Yahoo Finance JSON API + Google News RSS (for the drift-check headlines
 **MODE=bear — reduced set (6 sources):**
 Same as MODE=thesis, plus SWS (for its risks list which is high-value bear input) and Reddit (for retail sentiment as contrarian signal). Emphasis on short interest (Finviz + Yahoo API) and SEC filings for any recent 8-Ks.
 
-**Phase 3+ sources NOT in your fetch plan for Phase 2.5:**
+**(roadmap) sources NOT in your fetch plan :**
 - TradingView (needs headless Chrome for JS-rendered content)
 - FRED (only called by macro-context skill when requested)
 
@@ -71,7 +71,7 @@ Same as MODE=thesis, plus SWS (for its risks list which is high-value bear input
 
 Before starting the fetch loop, verify tooling:
 
-1. **curl**: run `which curl` via Bash. If missing, abort with error `curl-not-installed` — this is a hard dependency for Phase 1.5.
+1. **curl**: run `which curl` via Bash. If missing, abort with error `curl-not-installed` — this is a hard dependency.
 2. **lynx**: run `which lynx` via Bash. If missing, note it — Stockanalysis, SWS, SA, will fall back to raw-HTML Read which uses more tokens but still works. Do NOT abort.
 3. **jq** or **python3** (either suffices): needed for parsing SEC JSON. Check `which jq` then `which python3`. If neither is present, abort with error `json-parser-missing`.
 4. **SEC CIK cache**: check if `~/.claude/stockwiz/cache/company_tickers.json` exists and is less than 30 days old. If not, the SEC fetch step will populate it on the first call.
@@ -115,11 +115,11 @@ For each source in the plan, in order. The fetch mechanics differ by source — 
 
 - **Stockanalysis (curl + lynx):** 3 curl calls per `references/stockanalysis.md` (overview, financials, statistics). Pipe each through `lynx -stdin -dump -width=140`.
 
-- **Macrotrends (WebSearch + curl + lynx):** First check the slug cache at `~/.claude/stockwiz/cache/macrotrends-slugs.json`. Structure: `{ "<TICKER>": "<company-slug>", ... }` — e.g. `{"NVDA": "nvidia", "AAPL": "apple"}`. If the cache doesn't exist, create it as `{}`. If the ticker is in the cache, **skip WebSearch** and reuse the cached slug. Otherwise, resolve via `WebSearch` with `site:macrotrends.net {TICKER} revenue`, extract the slug from the top result URL, **write the new `(ticker, slug)` pair back to the cache file** (read-modify-write pattern), and proceed. Then 4 curl calls to revenue/net-income/gross-profit/free-cash-flow pages, each piped through lynx. See `references/macrotrends.md`. **Phase 2.5 value: 10+ years of historical data for cycle context.**
+- **Macrotrends (WebSearch + curl + lynx):** First check the slug cache at `~/.claude/stockwiz/cache/macrotrends-slugs.json`. Structure: `{ "<TICKER>": "<company-slug>", ... }` — e.g. `{"NVDA": "nvidia", "AAPL": "apple"}`. If the cache doesn't exist, create it as `{}`. If the ticker is in the cache, **skip WebSearch** and reuse the cached slug. Otherwise, resolve via `WebSearch` with `site:macrotrends.net {TICKER} revenue`, extract the slug from the top result URL, **write the new `(ticker, slug)` pair back to the cache file** (read-modify-write pattern), and proceed. Then 4 curl calls to revenue/net-income/gross-profit/free-cash-flow pages, each piped through lynx. See `references/macrotrends.md`. **value: 10+ years of historical data for cycle context.**
 
 - **Yahoo Finance (curl + cookies + JSON API):** 2-3 curl calls per `references/yahoo-finance.md`. First call is a throwaway to `finance.yahoo.com/quote/{ticker}` with `-c cookie_jar` to get the consent cookie. Second call is `query1.finance.yahoo.com/v10/finance/quoteSummary/...` with `-b cookie_jar` to get the JSON. Clean up the cookie jar when done.
 
-- **Google Finance + Google News RSS (curl + RSS + lynx):** 2-3 curl calls per `references/google-finance.md`. **Primary is the News RSS feed** at `news.google.com/rss/search?q=%22{TICKER}%22+stock&hl=en-US&gl=US&ceid=US:en` — keyless, returns well-formed XML with up to 20 recent headlines + publishers + dates. Secondary is the Google Finance quote page (often returns empty SSR; use as cross-check only). **Phase 2.5 value: this is the news layer stockwiz has been missing.** Extract up to 20 items: title, publisher, pubDate, description snippet. Compute publisher distribution (Reuters N, Bloomberg M, SA K, etc).
+- **Google Finance + Google News RSS (curl + RSS + lynx):** 2-3 curl calls per `references/google-finance.md`. **Primary is the News RSS feed** at `news.google.com/rss/search?q=%22{TICKER}%22+stock&hl=en-US&gl=US&ceid=US:en` — keyless, returns well-formed XML with up to 20 recent headlines + publishers + dates. Secondary is the Google Finance quote page (often returns empty SSR; use as cross-check only). **value: this is the news layer stockwiz has been missing.** Extract up to 20 items: title, publisher, pubDate, description snippet. Compute publisher distribution (Reuters N, Bloomberg M, SA K, etc).
 
 - **Simply Wall Street (WebSearch + curl + lynx):** First resolve the canonical URL via `WebSearch` with `site:simplywall.st {TICKER}`. Then curl the resulting URL with a browser UA and pipe through lynx. See `references/simply-wall-street.md`.
 
@@ -187,7 +187,7 @@ These are enforced operational invariants. Violations corrupt the pipeline.
 1. **Never fabricate a number.** If a source didn't disclose a value, write "not disclosed in source" or leave the field empty. NEVER synthesize a plausible-looking number.
 2. **Never editorialize.** Phrases like "this is a strong company", "the balance sheet looks healthy", "analysts are optimistic" never appear in any file you write. You are a librarian.
 3. **Never fetch the same URL twice in one run.** If the URL is in a file you already wrote, skip.
-4. **Max 35 total fetches per session** (WebFetch + curl combined). Hard cap. Phase 2.5's 10-source happy path averages ~25-30 fetches; the ceiling is 35 to accommodate retries and multi-page sources (Macrotrends 4 + Stockanalysis 3 + SEC 7 + Yahoo 3 + Reddit 3 + everything else).
+4. **Max 35 total fetches per session** (WebFetch + curl combined). Hard cap. The 10-source happy path averages ~25-30 fetches; the ceiling is 35 to accommodate retries and multi-page sources (Macrotrends 4 + Stockanalysis 3 + SEC 7 + Yahoo 3 + Reddit 3 + everything else).
 5. **Max 3 WebSearch calls.** Used to resolve canonical URLs for Simply Wall Street, Macrotrends, and (fallback only) Google News company-name query.
 6. **One retry per source, maximum.** If a source fails its first attempt and a retry is warranted (503/429/timeout), retry once after the prescribed backoff. Cloudflare challenges and 403s are NOT retry-able. Retries burn the rate-limit budget and rarely help — Cloudflare challenges don't go away in 1.5 seconds.
 7. **1500ms between fetches.** Always. No exceptions. Use `Bash sleep 1.5` when in doubt.

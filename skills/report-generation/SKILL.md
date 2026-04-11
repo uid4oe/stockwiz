@@ -15,10 +15,10 @@ You are called by the `report-writer` agent after a session has written `thesis.
 ## The three templates
 
 - **`deep-dive`** — the main research artifact, used by `/stockwiz`. See [`references/deep-dive-template.md`](references/deep-dive-template.md).
-- **`compare`** — multi-ticker comparison, used by `/stockwiz-compare`. Phase 3. (`references/compare-template.md`)
-- **`pivot`** — thesis pivot menu, used by `/stockwiz-pivot`. Phase 3. (`references/pivot-template.md`)
+- **`compare`** — multi-ticker comparison (roadmap). (`references/compare-template.md`)
+- **`pivot`** — thesis pivot menu (roadmap). (`references/pivot-template.md`)
 
-In Phase 1, only `deep-dive` is implemented. Other templates fall back to an error message if invoked before Phase 3.
+only `deep-dive` is implemented. Other templates fall back to an error message if invoked before (roadmap).
 
 ## Composition rules
 
@@ -114,8 +114,8 @@ Return to the caller a summary:
 - Sentences stripped (count)
 - Any sections skipped due to missing data
 
-## Phase 1 scope
+## Scope
 
-In Phase 1, only the deep-dive template is wired, and its section set is the reduced version described in `references/deep-dive-template.md` (hero, snapshot, three cases placeholder, sources, disclaimer). Full fundamentals, sentiment, peers, risk, assumption ledger, unknowns, devils-advocate appendix are Phase 2.
+only the deep-dive template is wired, and its section set is the reduced version described in `references/deep-dive-template.md` (hero, snapshot, three cases placeholder, sources, disclaimer). 
 
-If a Phase 1 report has only 3 raw sources (SEC EDGAR, Yahoo, Finviz), the snapshot strip will have 4–6 populated cards and the three cases will have 1–2 claims each. That's acceptable — the walking skeleton is supposed to look thin. The goal is an end-to-end pipeline that produces a valid compliant HTML file.
+If a report has only 3 raw sources (SEC EDGAR, Yahoo, Finviz), the snapshot strip will have 4–6 populated cards and the three cases will have 1–2 claims each. That's acceptable — the walking skeleton is supposed to look thin. The goal is an end-to-end pipeline that produces a valid compliant HTML file.

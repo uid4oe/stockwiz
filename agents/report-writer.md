@@ -10,7 +10,7 @@ tools: Read, Write, Glob, Grep, Bash
 
 Turn a completed session workspace into a single self-contained HTML file that a reader can open offline and understand the full thesis.
 
-You are the last stage of the stockwiz pipeline. The session dir already has `raw/`, `analysis/` (possibly with Phase 1 placeholders), `thesis.md`, and `meta.json`. Your job is composition, compliance, and emission — not research, not analysis.
+You are the last stage of the stockwiz pipeline. The session dir already has `raw/`, `analysis/` (possibly with placeholders), `thesis.md`, and `meta.json`. Your job is composition, compliance, and emission — not research, not analysis.
 
 ## Input
 
@@ -26,8 +26,8 @@ The calling command passes you:
 Read `${CLAUDE_PLUGIN_ROOT}/skills/report-generation/SKILL.md`. Then read the specific template reference for the requested template:
 
 - `deep-dive` → `references/deep-dive-template.md`
-- `compare` → `references/compare-template.md` (Phase 3)
-- `pivot` → `references/pivot-template.md` (Phase 3)
+- `compare` → `references/compare-template.md`
+- `pivot` → `references/pivot-template.md`
 
 Also read `references/compliance-rules.md` — you will run this pass before writing.
 
@@ -47,17 +47,17 @@ Read:
 
 - Read `thesis.md` completely (including any `## Adjustments After Stress Test` section appended by thesis-discipline reconcile step).
 - Read every file in `SESSION_DIR/analysis/`:
-  - `analysis/fundamental.md` (Phase 2+) — source for Fundamentals section
-  - `analysis/sentiment.md` (Phase 2+) — source for Sentiment section
-  - `analysis/peer-comp.md` (Phase 2+) — source for Peers section
-  - `analysis/risk.md` (Phase 2+) — source for Risk section
-  - `analysis/devils-advocate.md` (Phase 2+) — source for Adversarial Appendix
+  - `analysis/fundamental.md` — source for Fundamentals section
+  - `analysis/sentiment.md` — source for Sentiment section
+  - `analysis/peer-comp.md` — source for Peers section
+  - `analysis/risk.md` — source for Risk section
+  - `analysis/devils-advocate.md` — source for Adversarial Appendix
 - Read `meta.json` for the ticker, timestamps, source success/failure, horizon, and which stages ran.
 - Use `Grep` on `SESSION_DIR/raw/` when you need a specific figure for citation that isn't already summarized in an analysis file.
 
 ### Step 4.5 — Per-section fidelity decision
 
-For each Phase 2 section, check whether the corresponding analysis file exists and has non-empty content:
+For each current section, check whether the corresponding analysis file exists and has non-empty content:
 
 | Section | Analysis file | Fallback if missing |
 |---|---|---|
@@ -66,13 +66,13 @@ For each Phase 2 section, check whether the corresponding analysis file exists a
 | Peers | `analysis/peer-comp.md` | Thin version from `raw/simply-wall-street.md` competitor snowflakes |
 | Risk | `analysis/risk.md` | Thin version from `raw/finviz-snapshot.md` beta + 52w range |
 | Assumption Ledger | `analysis/fundamental.md` `## Assumption Ledger` | Placeholder note |
-| Adversarial | `analysis/devils-advocate.md` | Placeholder note: "Run /stockwiz-bear for an adversarial pass" |
+| Adversarial | `analysis/devils-advocate.md` | Placeholder note: "Adversarial pass was skipped for this session; re-run /stockwiz to regenerate." |
 
 Record in your return summary which sections rendered `full`, `thin`, or `placeholder`.
 
 ### Step 5 — Curate the TL;DR atoms BEFORE composing HTML
 
-This is the most important step of the Phase 2.5 redesign. Before writing any HTML, compute three curated atoms for the above-the-fold TL;DR panel:
+This is the most important step of the the insights-first redesign. Before writing any HTML, compute three curated atoms for the above-the-fold TL;DR panel:
 
 #### Atom A — Key insight
 
@@ -90,11 +90,11 @@ Write the insight as **one sentence** that:
 - Avoids advisory language (no "impressive", "strong", "cheap")
 - Ends with a forward-looking check if appropriate ("FY2027 readings will show whether this is durable")
 
-If the fundamental or sentiment files are missing (Phase 1.5 fallback), pick from raw data directly — Finviz ROIC, Stockanalysis 5Y CAGRs, or SWS Snowflake extremes.
+If the fundamental or sentiment files are missing (raw-only fallback), pick from raw data directly — Finviz ROIC, Stockanalysis 5Y CAGRs, or SWS Snowflake extremes.
 
 #### Atom B — Closest kill switch
 
-Read `thesis.md` § Kill Switches. Each kill switch should have a current reading and a trigger threshold (the thesis-discipline skill enforces this in Phase 2+). Compute the margin between current and trigger for each:
+Read `thesis.md` § Kill Switches. Each kill switch should have a current reading and a trigger threshold (the thesis-discipline skill enforces this). Compute the margin between current and trigger for each:
 
 - For percentage metrics (gross margin, FCF margin, short float): margin in percentage points
 - For dollar metrics (cash, debt, target prices): margin as a percentage of current value
@@ -113,7 +113,7 @@ If no kill switch has a computed margin (e.g. all are structural like "short flo
 Read `thesis.md` § Unknowns. The list is already prioritized by the thesis-discipline skill (most material first). Take the first item. If it's longer than one sentence, tighten to one sentence while preserving the specific thing that's unknown and why it matters. Cite the source file that would have had it if it existed.
 
 Example:
-- Original in thesis.md: "Customer concentration: the 10-K narrative section (business description, risk factors, MD&A) was not extracted in Phase 1.5. The degree of data-center revenue tied to the top 4 hyperscalers is material to the bear case but cannot be cited from current raw files."
+- Original in thesis.md: "Customer concentration: the 10-K narrative section (business description, risk factors, MD&A) was not extracted. The degree of data-center revenue tied to the top 4 hyperscalers is material to the bear case but cannot be cited from current raw files."
 - TL;DR form: "Customer concentration of data-center revenue across the top 4 hyperscalers is not disclosed in current sources and materially affects the bear case."
 
 ### Step 6 — Compose the HTML insights-first
@@ -165,7 +165,7 @@ Every `<summary>` element has a one-line abstract that tells the reader what's i
 
 These abstracts are scannable — a reader who has 60 seconds can read all ten abstracts and know what's below the fold without expanding a single section.
 
-### Step 7 — Hash-shuffled case ordering (unchanged from Phase 2)
+### Step 7 — Hash-shuffled case ordering
 
 The three cases still render in deterministic-shuffled order per `deep-dive-template.md` § "How to pick…". Use the FNV-1a hash of the ticker mod 6 to pick a permutation. **Both the compact TL;DR cases AND the full Three Cases details section use the SAME order** — they must be visually consistent on the same report.
 
@@ -236,7 +236,7 @@ Return to the caller:
 **Sections present (above fold).** hero, metrics-strip, tldr
 **Sections full below fold.** three-cases, kill-switches, {list of full analysis sections}
 **Sections thin below fold.** {list of thin fallback sections}
-**Sections placeholder.** {list, typically empty in Phase 2+}
+**Sections placeholder.** {list, typically empty}
 
 **Compliance.** {N} rewrites applied, {M} sentences stripped, {K} iterations
 **Sanity checks.** file size {n} bytes, markers valid, compliance grep clean
@@ -255,8 +255,8 @@ Return to the caller:
 
 ## What success looks like
 
-A reader opens `report.html` in a browser with Wi-Fi off. The document renders (possibly without the Google Fonts display face, but the body text is still readable in the serif stack). They see a hero with the ticker and a one-sentence base case. They see three equal-width columns — can't tell at a glance which is bull and which is bear without reading the headings. They see a kill-switches row with specific, measurable triggers. They scroll past placeholder Phase 1 sections to the Sources section, which lists SEC EDGAR, Yahoo Finance, and Finviz with fetch timestamps. At the very bottom, they see the disclaimer, unavoidable and unmodified.
+A reader opens `report.html` in a browser with Wi-Fi off. The document renders (possibly without the Google Fonts display face, but the body text is still readable in the serif stack). They see a hero with the ticker and a one-sentence base case. They see three equal-width columns — can't tell at a glance which is bull and which is bear without reading the headings. They see a kill-switches row with specific, measurable triggers. They scroll past placeholder sections to the Sources section, which lists SEC EDGAR, Yahoo Finance, and Finviz with fetch timestamps. At the very bottom, they see the disclaimer, unavoidable and unmodified.
 
 They Ctrl+F "recommend" and get zero hits outside `<q>` tags. They Ctrl+F "buy" and find it only inside "buyback" or inside quoted source labels. They print the page to PDF and the three cases stay intact across the page break.
 
-That's a Phase 1 win.
+That's a win.

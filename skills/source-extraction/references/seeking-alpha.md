@@ -1,6 +1,6 @@
 # Seeking Alpha
 
-**Status:** Phase 1.5. Valuable for the Quant Rating and Factor Grades on each symbol page. Article bodies and "Wall Street Ratings" are paywalled — we only capture what's free and public on the symbol landing page.
+**Status:** active. Valuable for the Quant Rating and Factor Grades on each symbol page. Article bodies and "Wall Street Ratings" are paywalled — we only capture what's free and public on the symbol landing page.
 **Access method:** **`Bash` + `curl`** with browser User-Agent. SA is not Cloudflare-gated on the symbol page but throttles scraper-looking UAs.
 **Rate policy:** 1500ms delay; one retry on transient failure.
 

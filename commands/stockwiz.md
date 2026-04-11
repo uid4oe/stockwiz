@@ -59,7 +59,7 @@ Write the initial `$SESSION_DIR/meta.json`:
   "ticker": "<TICKER>",
   "mode": "full",
   "horizon": "<HORIZON>",
-  "commandVersion": "0.3.1",
+  "commandVersion": "0.3.2",
   "createdAt": "<ISO 8601 with offset>",
   "status": "started",
   "stages": [],
@@ -86,7 +86,7 @@ Use `TodoWrite` to create the pipeline stages. This gives the user visibility in
 7. Finalize session metadata
 ```
 
-Phase 2: all four analysis skills run sequentially in the main context before thesis synthesis. The devils-advocate subagent runs in an isolated Task context after thesis synthesis. The thesis-discipline skill is invoked twice — once in `full` mode to synthesize, once in `reconcile` mode to merge devils-advocate feedback.
+all four analysis skills run sequentially in the main context before thesis synthesis. The devils-advocate subagent runs in an isolated Task context after thesis synthesis. The thesis-discipline skill is invoked twice — once in `full` mode to synthesize, once in `reconcile` mode to merge devils-advocate feedback.
 
 Mark stage 1 as in_progress.
 
@@ -101,7 +101,7 @@ Use the `Task` tool to invoke the `deep-researcher` subagent. Pass it this promp
 > SESSION_DIR: <absolute path to SESSION_DIR>
 > MODE: full
 >
-> This is a Phase 2.5 run. Fetch the 10 Phase 2.5 sources per the source-extraction skill, in this order:
+> This is a deep-dive run. Fetch the 10 current sources per the source-extraction skill, in this order:
 >   1. SEC EDGAR (curl + SEC JSON APIs) — fatal if this fails
 >   2. Finviz (WebFetch)
 >   3. Stockanalysis.com (curl + lynx) — 5Y financials
@@ -113,7 +113,7 @@ Use the `Task` tool to invoke the `deep-researcher` subagent. Pass it this promp
 >   9. Zacks (curl + lynx) — best-effort, fail fast on Cloudflare
 >   10. Reddit (curl + .json endpoints for r/stocks, r/wallstreetbets, r/investing)
 >
-> Each source's reference file under skills/source-extraction/references/ prescribes the exact tool, URLs, extraction targets, and failure mode detection — follow them. Do NOT substitute WebFetch for curl on gated sources (SEC, Yahoo, Stockanalysis, Macrotrends, Google, SWS, SA, Zacks, Reddit). Finviz is the only WebFetch source in Phase 2.5.
+> Each source's reference file under skills/source-extraction/references/ prescribes the exact tool, URLs, extraction targets, and failure mode detection — follow them. Do NOT substitute WebFetch for curl on gated sources (SEC, Yahoo, Stockanalysis, Macrotrends, Google, SWS, SA, Zacks, Reddit). Finviz is the only WebFetch source.
 >
 > SEC EDGAR is the only fatal source. If SEC fails, stop fetching and set meta.json.status to "failed". All other source failures (Zacks Cloudflare, Yahoo rate limit, Reddit 429, etc.) are non-fatal — continue to the next source. Zacks and Reddit are explicitly best-effort; do not retry challenges.
 >
@@ -131,7 +131,7 @@ Wait for the subagent to return. Read its summary.
    { "stage": "deep-researcher", "startedAt": "...", "endedAt": "...", "status": "ok", "succeeded": N, "failed": M }
    ```
 3. **If SEC EDGAR failed** (check `meta.json.sources["sec-edgar"].status == "failed"`), jump to Step 11 (fatal error). SEC is the ground-truth source — without it, no thesis.
-4. **If fewer than 3 sources succeeded in total**, also jump to Step 13 — there's not enough data to build a credible Phase 2.5 thesis even with the non-fatal sources intact.
+4. **If fewer than 3 sources succeeded in total**, also jump to Step 13 — there's not enough data to build a credible thesis even with the non-fatal sources intact.
 5. Otherwise, mark stage 1 complete in TodoWrite and proceed. It is fine (and expected) that some of SWS, SA, Yahoo may have failed — the thesis can still be built from the remaining sources.
 
 ## Step 7 — Stage 2: Run four analysis skills
@@ -167,7 +167,7 @@ Append a stage entry.
 
 ### Stage 2c — peer-comparison
 
-Load `${CLAUDE_PLUGIN_ROOT}/skills/peer-comparison/SKILL.md`. Follow its instructions. In Phase 2, peers come from `raw/simply-wall-street.md` competitor snowflakes (free context — SWS typically includes 2–3 peers with their own scores).
+Load `${CLAUDE_PLUGIN_ROOT}/skills/peer-comparison/SKILL.md`. Follow its instructions. peers come from `raw/simply-wall-street.md` competitor snowflakes (free context — SWS typically includes 2–3 peers with their own scores).
 
 Write `analysis/peer-comp.md`. If no peer data is available (SWS failed or didn't provide competitors), write a minimal file noting the limitation and move on.
 
@@ -191,7 +191,7 @@ Append a stage entry. Mark stage 2 complete in TodoWrite.
 
 Load the `thesis-discipline` skill (read `${CLAUDE_PLUGIN_ROOT}/skills/thesis-discipline/SKILL.md`) and follow its `full` mode instructions.
 
-**Phase 2 inputs** (preferred — from Stage 2 outputs):
+**Primary inputs** (preferred — from Stage 2 outputs):
 - `$SESSION_DIR/analysis/fundamental.md`
 - `$SESSION_DIR/analysis/sentiment.md`
 - `$SESSION_DIR/analysis/peer-comp.md`
@@ -250,7 +250,7 @@ Append a stage entry:
 }
 ```
 
-If the devils-advocate subagent fails (returns an error or the output file is missing), log it as failed with reason and continue — the report-writer will render a placeholder for the adversarial appendix. Non-fatal; the user can retry with `/stockwiz-bear <TICKER>` afterward.
+If the devils-advocate subagent fails (returns an error or the output file is missing), log it as failed with reason and continue — the report-writer will render a placeholder for the adversarial appendix. Non-fatal; the user can re-run `/stockwiz <TICKER>` to retry. (A future `/stockwiz-bear` command is on the roadmap to allow targeted adversarial re-runs without re-fetching.)
 
 Mark stage 4 complete.
 
@@ -286,7 +286,7 @@ Use the `Task` tool to invoke the `report-writer` subagent. Pass:
 > SESSION_DIR: <absolute path>
 > TEMPLATE: deep-dive (v0.3 insights-first)
 >
-> This is a Phase 2.5 run. The session has raw/ files for up to 10 sources (SEC EDGAR, Finviz, Stockanalysis, Macrotrends, Yahoo, Google Finance + Google News RSS, Simply Wall Street, Seeking Alpha, Zacks, Reddit), analysis/ files (fundamental, sentiment, peer-comp, risk, devils-advocate) from the four analysis skills and devils-advocate subagent, and a thesis.md (possibly with an Adjustments After Stress Test section from the reconcile step).
+> This is a deep-dive run. The session has raw/ files for up to 10 sources (SEC EDGAR, Finviz, Stockanalysis, Macrotrends, Yahoo, Google Finance + Google News RSS, Simply Wall Street, Seeking Alpha, Zacks, Reddit), analysis/ files (fundamental, sentiment, peer-comp, risk, devils-advocate) from the four analysis skills and devils-advocate subagent, and a thesis.md (possibly with an Adjustments After Stress Test section from the reconcile step).
 >
 > **Use the v0.3 insights-first template.** This means:
 >
@@ -306,7 +306,7 @@ Use the `Task` tool to invoke the `report-writer` subagent. Pass:
 >
 > Before rendering each below-the-fold section, check whether the corresponding analysis file exists and is non-empty. If any file is missing or is a failure stub, render a thin fallback from raw/ files directly per the deep-dive-template graceful-degradation rule. Record per-section fidelity (full / thin / placeholder) in your return summary.
 >
-> Run the compliance pass per skills/report-generation/references/compliance-rules.md before writing. Exemptions (Phase 2.5): "sell-side", "buy-side", and any text inside `stockwiz-disclaimer` class are NOT rewritten. Analyst distribution labels ("Strong Buy" etc), Yahoo `recommendationKey` strings, Zacks Rank text labels, SA Quant Rating labels, SWS risks list bullets, Reddit post titles, and Google News headlines MUST be wrapped in `<q>` tags when reproduced verbatim.
+> Run the compliance pass per skills/report-generation/references/compliance-rules.md before writing. Exemptions: "sell-side", "buy-side", and any text inside `stockwiz-disclaimer` class are NOT rewritten. Analyst distribution labels ("Strong Buy" etc), Yahoo `recommendationKey` strings, Zacks Rank text labels, SA Quant Rating labels, SWS risks list bullets, Reddit post titles, and Google News headlines MUST be wrapped in `<q>` tags when reproduced verbatim.
 >
 > Return a compact summary with file path, byte count, curated TL;DR atoms (the three atoms you picked), sections present (full/thin/placeholder per below-the-fold section), compliance rewrites applied, stripped sentences, and sanity check results.
 
@@ -355,17 +355,36 @@ Print the final assistant message to the user. It should include:
    - Base case headline
    - Bear case headline
    - 1–2 of the most important kill switches
-   - Source coverage ("3 of 3 Phase 1 sources succeeded" or "2 of 3, Zacks failed")
+   - Source coverage ("3 of 3 sources succeeded" or "2 of 3, Zacks failed")
    - Path to the HTML report (not opened automatically — tell the user to open it)
 
 3. **A one-line next-step hint**:
-   > "Ask a follow-up question to dig into any section — I'll read from this session workspace without re-fetching. Or run `/stockwiz-thesis`, `/stockwiz-compare`, etc. (Phase 3 commands coming soon)."
+   > "Ask a follow-up question to dig into any section — I'll read from this session workspace without re-fetching, so follow-ups are cheap. Or run `/stockwiz <OTHER_TICKER>` to analyze another name."
 
 Do NOT auto-open the HTML file. The user should choose when to view it.
 
 ## Step 13 — Fatal error handling
 
-If any fatal error occurs (deep-researcher returned zero successes, SEC EDGAR unreachable, report-writer failed twice, compliance pass unresolvable):
+This step is the destination of every fatal-error jump from earlier steps. **It must handle every case that jumps here**; if you add a new fatal-error path upstream, add it to this list too.
+
+### Fatal conditions (exhaustive list)
+
+Any of these must set `meta.json.status = "failed"`, stop the pipeline, and surface a diagnostic:
+
+1. **Setup not run** (Step 2) — `~/.claude/stockwiz/config.json` missing or invalid. User must run `/stockwiz-setup` first.
+2. **Invalid ticker argument** (Step 1) — ticker fails regex `^[A-Z][A-Z.\-]{0,6}$` or is missing entirely. Usage message shown, exit.
+3. **mkdir failure** (Step 3) — creating `$SESSION_DIR/raw/` or `$SESSION_DIR/analysis/` failed (permission, disk full). Surface OS error.
+4. **Ticker not found at SEC** (Step 6) — deep-researcher's SEC stage looked up the ticker in `company_tickers.json` and found no match. Reason `ticker-not-found-at-sec`. This is fatal because SEC is the ground-truth source; without it, no thesis.
+5. **SEC EDGAR unreachable on first run** (Step 6) — the one-time `company_tickers.json` fetch failed (403 UA issue, DNS, network error). Reason `sec-unreachable`. Fatal.
+6. **SEC EDGAR submissions API failed** (Step 6) — ticker resolved but the submissions or companyconcept APIs returned 403/503/timeout even after one retry. Reason `sec-submissions-failed`. Fatal.
+7. **Non-US filer (20-F only) with zero recoverable structured data** (Step 6) — the filer has only 20-F filings AND no XBRL concept data could be extracted. Reason `non-us-filer-no-data`. Fatal.
+8. **Fewer than 3 sources succeeded in total** (Step 6) — deep-researcher returned but sources['ok'].count < 3. Reason `insufficient-sources`. Fatal because no thesis can be built from 2 or fewer vendor snapshots.
+9. **curl not installed** (deep-researcher Step 2.5) — hard dependency missing. Reason `curl-not-installed`. Fatal.
+10. **JSON parser missing** (deep-researcher Step 2.5) — neither `jq` nor `python3` available for SEC JSON parsing. Reason `json-parser-missing`. Fatal.
+11. **report-writer failed twice** (Step 11) — two consecutive attempts at HTML composition returned errors. Reason carries the underlying error. Fatal.
+12. **Compliance pass unresolvable** (Step 11) — report-writer's compliance pass ran 3 iterations and still had banned phrases outside `<q>` tags. Reason `compliance-stuck`. Fatal — we refuse to emit a non-compliant report.
+
+### Handling procedure
 
 1. Update `$SESSION_DIR/meta.json`:
    ```json
@@ -373,15 +392,28 @@ If any fatal error occurs (deep-researcher returned zero successes, SEC EDGAR un
      ...
      "status": "failed",
      "failedAt": "<ISO 8601>",
-     "error": "<brief description>"
+     "error": "<reason code + one-line description>",
+     "failedAtStage": "<stage-name-that-jumped-here>"
    }
    ```
-2. Do NOT emit `report.html`.
+2. Do NOT emit `report.html`. If a partial `report.html` exists from a failed report-writer attempt, delete it.
 3. Print to the user:
-   > stockwiz deep-dive on <TICKER> failed: <reason>.
-   > Session workspace saved at <SESSION_DIR> for inspection.
-   > Common causes: source rate-limiting, SEC EDGAR unreachable, compliance pass stuck.
+   > stockwiz deep-dive on `<TICKER>` failed.
+   > Stage: `<failed-stage>`
+   > Reason: `<reason code>` — `<human-readable explanation>`
+   > Session workspace saved at `<SESSION_DIR>` for inspection.
+   > `<one or two sentences of diagnostic guidance from the table above>`
 4. Return.
+
+### Non-fatal failures (for reference — these do NOT jump to Step 13)
+
+The following are explicitly non-fatal and must not call Step 13:
+
+- Any individual non-SEC source failing (Zacks Cloudflare, Yahoo rate limit, Reddit 429, SWS paywall, SA SSR gap) — deep-researcher marks the source `failed` and continues.
+- `lynx` not installed — deep-researcher falls back to raw-HTML Read for lynx-dependent sources.
+- Any individual analysis skill writing a stub (missing raw inputs) — downstream skills and report-writer handle stubs via thin fallbacks.
+- devils-advocate subagent failing — Stage 5 (reconcile) is skipped, report-writer renders the Adversarial Appendix as a placeholder.
+- Cookie jar leaks in `/tmp/stockwiz-*` — cleanup bug, not a fatal condition.
 
 ## Edge cases
 
@@ -391,13 +423,13 @@ If any fatal error occurs (deep-researcher returned zero successes, SEC EDGAR un
 
 - **lynx not installed.** Stockanalysis, SWS, and SA reference files all prefer lynx for HTML→text conversion. If lynx is missing, deep-researcher falls back to Read-with-limit on the raw HTML file. This is slower and less clean but still functional. The deep-researcher's Step 2.5 prerequisite check notes the missing tool; the agent's summary should mention it so the user knows why certain extractions are thinner than they could be.
 
-- **curl not installed.** Hard dependency since Phase 1.5 and throughout Phase 2.5. deep-researcher's Step 2.5 aborts with `curl-not-installed`. User needs to install curl (should be present on every macOS and Linux system by default).
+- **curl not installed.** Hard dependency. deep-researcher's Step 2.5 aborts with `curl-not-installed`. User needs to install curl (should be present on every macOS and Linux system by default).
 
 - **SEC company_tickers.json fetch fails on first run.** The cache doesn't exist yet. If the fetch fails with a 403 (UA issue) or network error, treat as fatal SEC failure and jump to Step 13 — no CIK lookup means no SEC at all.
 
 - **Analysis skill failure.** Any of the four analysis skills may write a stub file if its raw inputs are all failed. The thesis-discipline `full` mode handles this via its fallback mode (reads raw files directly). The report-writer renders a thin fallback for that section. Non-fatal at every stage.
 
-- **Devils-advocate failure.** If the Task call times out or the subagent returns an error, log it and skip the reconcile stage (Stage 5). The report-writer will render a placeholder for the Adversarial Appendix section noting the user can retry with `/stockwiz-bear`. Non-fatal.
+- **Devils-advocate failure.** If the Task call times out or the subagent returns an error, log it and skip the reconcile stage (Stage 5). The report-writer will render a placeholder for the Adversarial Appendix section noting the pass was skipped. Non-fatal.
 
 - **Cookie jar leaks.** Yahoo's fetch creates a cookie jar tempfile. It should be deleted after Yahoo finishes (success or failure). If you notice `/tmp/stockwiz-yahoo-cookies.*` files accumulating over many runs, that's a cleanup bug worth fixing.
 
@@ -405,7 +437,7 @@ If any fatal error occurs (deep-researcher returned zero successes, SEC EDGAR un
 
 - **Disk full / permission error during session dir creation.** Surface the OS error, abort, do not attempt to continue.
 
-- **User interrupts mid-run.** Claude Code will handle this — the session dir remains on disk with `status: "started"` and whatever partial files were written. A subsequent `/stockwiz-revisit <TICKER>` (Phase 4) would be able to detect and warn.
+- **User interrupts mid-run.** Claude Code will handle this — the session dir remains on disk with `status: "started"` and whatever partial files were written. The user can manually inspect the directory, or re-run `/stockwiz <TICKER>` to start fresh. A future `/stockwiz-revisit` command on the roadmap would detect interrupted sessions and offer to resume them.
 
 ## What success looks like
 
@@ -413,4 +445,4 @@ The user runs `/stockwiz NVDA`. They see a todo list with seven stages. Stage 1 
 
 The user opens `report.html` and sees a clean research brief with three equal-weight columns, a full fundamentals section with multi-year sparklines, an insider-activity grid, a peer comp table, a drawdown profile, an assumption ledger you can interrogate row-by-row, a full-width kill-switches row calibrated with margin-of-safety numbers, a red-highlighted adversarial appendix with ranked weakest claims and kill-switch rewrites, and a disclaimer footer that can't be removed. They come back to the chat and ask "what did devils-advocate say about the margin thesis?" — the main context Greps `analysis/devils-advocate.md` and answers with citation, no re-fetch.
 
-That's the Phase 2 bar.
+That's the current bar.

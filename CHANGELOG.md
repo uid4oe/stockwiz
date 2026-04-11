@@ -2,6 +2,70 @@
 
 All notable changes to stockwiz are documented in this file.
 
+## [0.3.2] — 2026-04-11
+
+### Architectural cleanup from self-review — no new features
+
+A comprehensive critical review of 0.3.1 surfaced plan-vs-reality drift (6 commands promised but not built), schema ownership gaps, duplicated compliance pre-filter lists, empty scaffolding directories, and widespread "Phase N" build-history language leaking into runtime docs. This release fixes all 15+ items from the review, with zero new features. The goal is to raise the quality baseline of everything that already exists before any more features land.
+
+**Plan-vs-reality cleanup — credibility restored**
+
+- **README commands table rewritten** to list only `/stockwiz-setup` and `/stockwiz` (the two commands that actually exist). Everything else moved to a new Roadmap section marked as "planned but not yet built".
+- **stockwiz-setup quickstart rewritten** to show only the two live commands. Previously it directed users to run `/stockwiz-compare`, `/stockwiz-bear`, `/stockwiz-monitor` as first-run examples — all of which would have produced command-not-found errors.
+- **Agent description fields no longer lie.** `deep-researcher` previously claimed to be "Invoked by /stockwiz, /stockwiz-thesis, /stockwiz-compare, /stockwiz-bear, and /stockwiz-revisit" — four of those five don't exist. Updated to "Currently invoked only by /stockwiz; supports reduced fetch plans reserved for future commands." Same fix applied to `devils-advocate`.
+- **Skill "Loaded by" sections** in fundamental-analysis, peer-comparison, and thesis-discipline previously referenced unbuilt commands as active callers. Corrected to reflect current reality with a note about roadmap commands.
+- **Orchestrator edge cases and final message** cleaned of references to `/stockwiz-bear`, `/stockwiz-revisit`, `/stockwiz-thesis`, `/stockwiz-compare`. Replaced with "re-run `/stockwiz <TICKER>`" where the suggestion was to retry, or with "a future /stockwiz-\* command on the roadmap" where the suggestion was genuinely aspirational.
+
+**Empty scaffolding deleted**
+
+Six empty reference directories and the entire empty `macro-context/` skill tree removed. Created in Phase 1 scaffolding for files planned in later phases, never populated:
+
+- `skills/macro-context/` (and its empty `references/` subdir) — was a ghost skill with no SKILL.md
+- `skills/fundamental-analysis/references/`
+- `skills/peer-comparison/references/`
+- `skills/sentiment-synthesis/references/`
+- `skills/risk-screen/references/`
+- `skills/thesis-discipline/references/`
+
+`docs/` is no longer empty — it now contains two substantive architecture documents (below).
+
+**New documentation: `docs/`**
+
+- **`docs/architecture.md`** — the entry point for any contributor. Documents the librarian/analyst separation principle as the core architectural invariant, a 7-stage ASCII state-flow diagram of the `/stockwiz` pipeline with explicit fatal-vs-non-fatal error paths, the agent-vs-skill decision rule (context pollution risk / anchoring hazard / composition isolation → agent; otherwise skill), the current assignment of each work unit with rationale and open questions, the file layout contract (summary, with full detail in session-workspace.md), the single-entry-point compliance pass design, and step-by-step "how to add a new source / analysis skill / command" guides.
+- **`docs/session-workspace.md`** — the authoritative filesystem contract. Complete directory tree with file purposes, file lifecycle table (created by / read by / mutable? / persistent?), multi-writer rules (immutable raw/, append-only thesis.md, read-modify-write meta.json), the **full meta.json schema** with field-level documentation (previously defined only in commands/stockwiz.md Step 4 as a JSON snippet), the reason-code taxonomy for `sources[slug].reason`, config.json schema, cache schemas (`company_tickers.json`, `macrotrends-slugs.json`), retention policy, and the checklist for "how to add a new source to the filesystem contract".
+
+Together these two files close the biggest contract gap identified in the review: meta.json previously had 6 writers and 1 schema definition inside a JSON snippet; it now has a proper documented contract.
+
+**Pre-filter compliance rules consolidated**
+
+Previously the banned-phrase pre-filter guidance was duplicated across `fundamental-analysis`, `sentiment-synthesis`, `peer-comparison`, `risk-screen`, and `thesis-discipline` hard-rules sections. Adding a new banned phrase required updating five files.
+
+- New **"Pre-filter guidance for skill authors"** section added to `compliance-rules.md` as the single source of truth. Covers: the principle, phrases to avoid, neutral alternatives, how to quote source text with `<q>` tags, the industry-terminology exemption list, why pre-filtering matters, and a one-line reference template for skills to link instead of duplicating.
+- **Each analysis skill's Hard Rules** now has a single line pointing at `compliance-rules.md § Pre-filter guidance for skill authors` instead of the duplicated list. Skill-specific additions (e.g. fundamental-analysis's "undervalued/overvalued", risk-screen's "risky/safe", peer-comparison's "cheap/expensive") are kept inline but as brief callouts rather than full lists.
+
+**Phase-label language purged from runtime docs**
+
+Previously runtime files were littered with "Phase 1.5 limitation", "Phase 2+ feature", "Phase 2.5 source", "(Phase 3)" qualifiers. Phase numbering is internal build history and belongs in CHANGELOG, not in runtime instructions. A contributor reading `sentiment-synthesis/SKILL.md` shouldn't need to know which phase added the Reddit source.
+
+- **~160 phase-label substitutions** across commands, agents, skills, and source reference files, replacing "Phase X" qualifiers with either nothing, "current", or "(roadmap)" as appropriate
+- Grammar cleanup pass on the substitution aftermath — several sentences that lost their phase qualifier became ungrammatical; all repaired
+- "Status: Phase N" banners in reference files → "Status: active"
+- "In Phase 2+ " / "For Phase 1.5 " prefixes → removed
+- Step header " (unchanged from Phase 2)" qualifiers → removed
+- `/stockwiz-setup`'s "Phase 3 commands coming soon" → proper Roadmap language
+
+**Step 13 fatal-error handler expanded**
+
+Previously Step 13's fatal-case list named four conditions. Earlier steps actually jumped to Step 13 from more than four places (ticker-not-found, mkdir failure, SEC pre-flight failure, <3 sources succeeded, curl missing, JSON parser missing, etc). The list is now **exhaustive**: 12 numbered fatal conditions with reason codes, a clear distinction from the non-fatal failure list, a procedural handling block that sets `failedAtStage` in meta.json, and a final "non-fatal failures" section for contrast.
+
+**Version metadata**
+
+`plugin.json` and session `meta.json.commandVersion` bumped to **0.3.2**.
+
+**No new features. No new sources. No new commands. No new skills.**
+
+This is a cleanup-only release. The three runtime-critical Phase 2.5 fix items from 0.3.1 (orchestrator prompts, analysis-skill inputs, etc) remain in place; nothing was regressed. The next feature work (Phase 3 — actually building the missing commands, or sub-agent-ifying the four analysis skills for context isolation) can proceed against a clean baseline.
+
 ## [0.3.1] — 2026-04-11
 
 ### Phase 2.5 fix pass — critical bugs found in self-review

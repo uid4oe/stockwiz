@@ -1,12 +1,12 @@
 # Stockanalysis.com
 
-**Status:** Phase 1.5. Excellent source for multi-year financial statements. Scrape-friendly HTML. Primary fallback for Yahoo Finance when the Yahoo JSON API is gated or returns incomplete modules.
+**Status:** active. Excellent source for multi-year financial statements. Scrape-friendly HTML. Primary fallback for Yahoo Finance when the Yahoo JSON API is gated or returns incomplete modules.
 **Access method:** **`Bash` + `curl`** with browser User-Agent. Stockanalysis serves clean HTML with modest JS enhancement; lynx or direct HTML parsing both work.
 **Rate policy:** 1500ms delay; one retry on transient failure.
 
-## Why it's in Phase 1.5
+## Why it's in the source set
 
-Originally planned for Phase 2. Brought forward because:
+Brought forward because:
 
 1. **Yahoo Finance is unreliable.** Even with the JSON API fix, Yahoo 503s and crumb failures are frequent enough to need a structured-data fallback that doesn't depend on Yahoo.
 2. **5–10Y financial history is the backbone of trend analysis.** Finviz gives one year of numbers; Yahoo gives 4 years if you're lucky; Stockanalysis gives 5–10 years of income statement, balance sheet, and cash flow with consistent columns.
@@ -25,13 +25,13 @@ https://stockanalysis.com/stocks/{ticker-lower}/statistics/
 https://stockanalysis.com/stocks/{ticker-lower}/forecast/
 ```
 
-For Phase 1.5, fetch **only the most valuable pages** to stay under the fetch budget:
+fetch **only the most valuable pages** to stay under the fetch budget:
 
 1. `/stocks/{ticker}/` — overview, current metrics
 2. `/stocks/{ticker}/financials/` — income statement (5Y default)
 3. `/stocks/{ticker}/statistics/` — valuation metrics + ownership
 
-Skip balance sheet, cash flow, and forecast pages in Phase 1.5 unless SEC EDGAR failed and we need Stockanalysis to fully backfill. In that emergency fallback mode, fetch all 6 pages.
+Skip balance sheet, cash flow, and forecast pages unless SEC EDGAR failed and we need Stockanalysis to fully backfill. In that emergency fallback mode, fetch all 6 pages.
 
 ## Fetch
 
@@ -206,7 +206,7 @@ Write to `raw/stockanalysis.md`. If using lynx dumps, also save the raw text dum
 
 ## Calls
 
-- Phase 1.5 normal: **3 curl calls** (overview, financials, statistics)
+- normal: **3 curl calls** (overview, financials, statistics)
 - Emergency mode (Yahoo failed, need balance sheet + cash flow): **6 curl calls**
 
 Normal mode fits comfortably in the budget.
@@ -215,4 +215,4 @@ Normal mode fits comfortably in the budget.
 
 HTML parsing of data tables via LLM prompts works, but it's wasteful — the LLM sees all the markup, navigation, scripts, and styling noise. Piping through `lynx -dump` converts the page to a clean text representation where tables become aligned column text. The LLM then reads that text and extracts fields with much better signal-to-noise and token efficiency.
 
-`lynx` is preinstalled on macOS and on most Linux distros. If a user's system is missing it, the agent should install it via homebrew (`brew install lynx`) or apt (`apt-get install lynx`) — but for Phase 1.5 we'll assume it's present. In Phase 2 we can add a detection step in `/stockwiz-setup` that warns if lynx is missing.
+`lynx` is preinstalled on macOS and on most Linux distros. If a user's system is missing it, the agent should install it via homebrew (`brew install lynx`) or apt (`apt-get install lynx`) — we currently assume it is present. A future phase can add a detection step in `/stockwiz-setup` that warns if lynx is missing.

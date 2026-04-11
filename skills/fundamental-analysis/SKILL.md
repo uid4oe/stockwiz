@@ -10,7 +10,7 @@ The structured "numbers" skill. Given a session workspace full of raw data files
 
 ## When to use
 
-You are loaded by `/stockwiz`, `/stockwiz-thesis`, or `/stockwiz-compare` after `deep-researcher` has finished writing raw/ files. Your inputs are always under `SESSION_DIR/raw/`, your output is always `SESSION_DIR/analysis/fundamental.md`.
+You are loaded by the `/stockwiz` orchestrator at Stage 2a, after `deep-researcher` has finished writing `raw/` files. Your inputs are always under `SESSION_DIR/raw/`, your output is always `SESSION_DIR/analysis/fundamental.md`. (Future commands like `/stockwiz-thesis` or `/stockwiz-compare` may also load this skill when they are built — see the repo Roadmap.)
 
 ## Core principle
 
@@ -89,7 +89,7 @@ For each metric, note whether the trend is expanding, compressing, or stable, an
 Show revenue and EPS trajectories with multi-year tables. **Prefer Macrotrends (10-20Y) over Stockanalysis (5Y) when both are available** — the longer history is essential for cycle context.
 
 - Revenue — prefer Macrotrends 10-20Y with YoY growth rates; fall back to Stockanalysis 5Y if Macrotrends failed
-- EPS (diluted) — 5Y from Stockanalysis (Macrotrends has EPS on a separate page we don't fetch in Phase 2.5)
+- EPS (diluted) — 5Y from Stockanalysis (Macrotrends has EPS on a separate page we don't fetch)
 - FCF — prefer Macrotrends 10-20Y FCF history; Stockanalysis has 5Y
 - **Long-run CAGR** (5Y and 10Y if available) — compute explicitly: `CAGR = (end/start)^(1/years) - 1`, show the arithmetic inline
 - **Cycle context**: if Macrotrends is present, note where current growth sits vs the long-run distribution. E.g. "FY2026 revenue growth of +65% vs the 2012-2024 mean of +22% → current is 2.9σ above the long-run mean, consistent with a cyclical peak not a structural new normal."
@@ -131,8 +131,8 @@ Every row must have a source (the raw file or the reference). No assumption goes
 
 Specific things fundamental-analysis could not determine from the available raw files. Examples:
 
-- Customer concentration (requires 10-K prose, not in Phase 1.5 XBRL extraction)
-- Segment-level revenue split (Phase 2+ — requires 10-K MD&A parsing)
+- Customer concentration (requires 10-K prose, not in current XBRL extraction)
+- Segment-level revenue split (requires 10-K MD&A parsing, not yet wired)
 - Specific SBC dollar amount (if not in fetched sources)
 - Forward-EPS disagreement between sources (when it happens, note which sources, note that downstream can't pick without arbitrary choice)
 
@@ -144,7 +144,7 @@ Unknowns are a first-class output. A fundamental analysis with zero unknowns is 
 1. **Every number is dated.** "Revenue $130.5B (FY2025)" not "Revenue $130.5B". The date comes from the source's fiscal period labeling.
 2. **Every claim is cited.** Use the `[raw/<file>.md]` style inline after each sentence containing a figure or trend.
 3. **No single-point intrinsic value.** No "fair value is $X". You may frame ranges and sensitivities but never a single output number.
-4. **No banned language.** Avoid "undervalued", "overvalued", "buy opportunity", "should sell", "recommend". Use "trading below framing", "trading above framing", "consider", "analysis suggests", "may re-evaluate". If the thesis-discipline skill has to rewrite your output, the signal has been muddied.
+4. **No banned imperative language.** See `../report-generation/references/compliance-rules.md` § "Pre-filter guidance for skill authors" for the canonical list of phrases to avoid and their neutral alternatives. The compliance pass is a safety net; your output should not trigger it. Fundamental-analysis-specific phrases to avoid: **"undervalued"** → "trading below framing"; **"overvalued"** → "trading above framing"; **"buy opportunity"** → strip or rewrite to descriptive factual claim.
 5. **Arithmetic is shown.** If you derive FCF = CFO − CapEx, write both inputs and the result: `FCF FY2026 = $102.72B − $6.04B = $96.68B [raw/sec-edgar-10k.md]`.
 6. **Cross-source disagreements are preserved, not resolved.** If Finviz forward P/E is 17.04 and stockanalysis is 22.74, write both with their sources and flag the disagreement in Unknowns. Don't pick one.
 7. **Never fabricate.** If a metric isn't in the raw files, write "not available in fetched sources" and add an Unknowns row. Do NOT synthesize a plausible number.
@@ -167,9 +167,9 @@ You may NOT compute:
 - Implied upside/downside to a target (requires a target)
 - Relative valuation scores (that's the peer-comparison skill's job)
 
-## Phase 1.5 limitations you'll hit
+## Known limitations
 
-- **10-K prose is not parsed.** Business description, risk factors, MD&A narrative, customer concentration, segment breakdown — none of this is in the current SEC XBRL extraction. Flag these as Unknowns; Phase 2+ will add 10-K HTML parsing.
+- **10-K prose is not parsed.** Business description, risk factors, MD&A narrative, customer concentration, segment breakdown — none of this is in the current SEC XBRL extraction. Flag these as Unknowns; a future phase will add 10-K HTML parsing.
 - **Forward-EPS disagreements.** Finviz and stockanalysis sometimes show different forward P/Es because they use different consensus estimates. You can note the disagreement but you cannot resolve it without a third source or direct consensus data.
 - **SWS forecasts are analyst-consensus-derived, not independent.** When citing SWS forecast metrics, note that they reflect sell-side consensus and are not an independent signal.
 

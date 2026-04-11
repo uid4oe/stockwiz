@@ -1,6 +1,6 @@
 # Yahoo Finance
 
-**Status:** Phase 1.5. Valuable for fundamentals and statistics, but the public HTML pages are React-rendered and heavily gated. We fetch the **undocumented JSON quoteSummary API** that yfinance-style tools use, via curl with a browser User-Agent and cookie handling.
+**Status:** active. Valuable for fundamentals and statistics, but the public HTML pages are React-rendered and heavily gated. We fetch the **undocumented JSON quoteSummary API** that yfinance-style tools use, via curl with a browser User-Agent and cookie handling.
 **Access method:** **`Bash` + `curl`** (not WebFetch). Yahoo's HTML pages return either an empty JavaScript skeleton or a 503 to non-browser UAs; the JSON API needs a cookie from a prior visit to `finance.yahoo.com` and sometimes a crumb token.
 **Rate policy:** 1500ms delay; one retry on transient failure.
 

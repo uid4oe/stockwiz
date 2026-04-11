@@ -1,6 +1,6 @@
 # Simply Wall St
 
-**Status:** Phase 1.5. High signal-to-noise source for a compact quality/risk view, via their public "snowflake" summary and written narratives on each stock page.
+**Status:** active. High signal-to-noise source for a compact quality/risk view, via their public "snowflake" summary and written narratives on each stock page.
 **Access method:** **`Bash` + `curl`** with browser User-Agent. SWS is not Cloudflare-gated but serves a JavaScript-lite SSR that requires a realistic UA to return useful HTML.
 **Rate policy:** 1500ms delay; one retry on transient failure.
 
@@ -52,7 +52,7 @@ Then either:
 
 **A) Use WebFetch on the file URL** — not supported; WebFetch only takes HTTP URLs.
 
-**B) Read the file and parse with an LLM pass (Phase 1.5 approach).**
+**B) Read the file and parse with an LLM pass.**
 
 Since we saved the HTML to a tempfile, we `Read` the file with a line/byte limit to capture the useful section. SWS pages are typically 100–400KB. Read the first ~50KB and ask the skill-running model to extract the target fields.
 

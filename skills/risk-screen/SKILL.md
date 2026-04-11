@@ -88,17 +88,17 @@ Again, describe; never predict.
 
 ## Correlation
 
-Phase 2 limitation: we do not fetch S&P 500 price series or sector index series in Phase 2. Correlation analysis is deferred to Phase 4 when FRED + macro context is wired.
+Current limitation: we do not fetch S&P 500 price series or sector index series. Correlation analysis is deferred to a future phase when FRED + macro context is wired.
 
-For Phase 2, note any sector/macro beta implied by the data:
+note any sector/macro beta implied by the data:
 - "Finviz classifies NVDA as Technology / Semiconductors; historical correlation with SOXX ETF would be material to an investor sizing this as a sector vs single-name bet, but is not captured in current raw data."
 
 ## Concentration Risks
 
 Enumerate specific concentration risks visible in the data:
 
-- **Customer concentration.** Phase 2 limitation: 10-K prose not parsed, so explicit customer-concentration disclosures from Item 1A are not available. Note this as an Unknown.
-- **Geographic concentration.** Same — SEC XBRL structured facts do not include geographic segmentation in Phase 2.
+- **Customer concentration.** Current limitation: 10-K prose not parsed, so explicit customer-concentration disclosures from Item 1A are not available. Note this as an Unknown.
+- **Geographic concentration.** Same — SEC XBRL structured facts do not include geographic segmentation. Flag as unknown.
 - **Product concentration.** If a segment breakdown is available from SWS or SA business description, note it. Else flag.
 - **Channel concentration.** Note if visible.
 - **Supply-chain concentration.** Note if visible (e.g. NVDA's dependence on TSMC for leading-edge fabrication is widely known and may be implied by SWS risks or SA teasers).
@@ -111,7 +111,7 @@ Enumerate specific concentration risks visible in the data:
 - Net cash / net debt: +/- $X.XXB
 - Interest coverage: X.Xx [raw/stockanalysis.md]
 - Debt/EBITDA: X.XXx [raw/stockanalysis.md]
-- Debt maturities (Phase 3+ — requires 10-K prose)
+- Debt maturities ((roadmap) — requires 10-K prose)
 
 For high-quality balance sheets (net cash >> net debt, interest coverage >100x), the framing is "capital-structure risk is not a visible near-term concern in current data." For stretched balance sheets, list the specific ratios and their thresholds.
 
@@ -130,12 +130,12 @@ Descriptive: "SWS flags three distinct risks: insider-only-selling, high non-cas
 
 ## Unknowns
 
-- Customer concentration ratios (requires 10-K Item 1A prose — Phase 3+)
-- Geographic revenue mix (requires 10-K MD&A — Phase 3+)
+- Customer concentration ratios (requires 10-K Item 1A prose — (roadmap))
+- Geographic revenue mix (requires 10-K MD&A — (roadmap))
 - Credit-rating changes or outlook notes (not in current sources)
 - Debt maturity schedule (requires 10-K prose)
 - Insurance, litigation, regulatory exposures (10-K prose)
-- Any correlation data vs S&P 500 or sector ETFs (Phase 4+)
+- Any correlation data vs S&P 500 or sector ETFs
 ```
 
 ## Hard rules
@@ -144,8 +144,8 @@ Descriptive: "SWS flags three distinct risks: insider-only-selling, high non-cas
 2. **No numeric risk score.** Do not output "risk = 0.73/1.0" or anything that compresses the multidimensional risk picture into a scalar. You lose too much information.
 3. **Cite every number.** Same rule as fundamental-analysis. Use `[raw/...]` inline.
 4. **SWS risks go verbatim.** When reproducing SWS's risks list, use their exact wording — downstream wraps these in `<q>` tags in the HTML report. Do NOT paraphrase.
-5. **Phase 2 limits are explicit.** When you hit a limitation (10-K prose not parsed, no correlation data), write it in the Unknowns section rather than leaving it vague.
-6. **No banned language.** "Risky" and "safe" are compliance-hazardous; use "higher-volatility" and "lower-volatility" or specific numeric framings. "Concerning" and "reassuring" are evaluative; use "consistent with" or "at [threshold]".
+5. **Current limits are explicit.** When you hit a limitation (10-K prose not parsed, no correlation data), write it in the Unknowns section rather than leaving it vague.
+6. **No banned imperative language.** See `../report-generation/references/compliance-rules.md` § "Pre-filter guidance for skill authors" for the canonical list. Risk-screen-specific phrases to avoid: **"risky"** and **"safe"** are compliance-hazardous — use "higher-volatility" and "lower-volatility" or specific numeric framings. **"Concerning"** and **"reassuring"** are evaluative — use "consistent with" or "at [threshold]".
 7. **Tail risks are enumerated, not ranked.** Don't sort tail risks by likelihood — you don't know the likelihood. List them with their source weight and let `thesis-discipline` choose which to elevate.
 
 ## A note on beta
