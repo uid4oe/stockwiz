@@ -70,7 +70,7 @@ The source set currently wires **10 sources**. TradingView remains deferred beca
 | # | Source | Reference file | Phase | Tool | Keyless? |
 |---|---|---|---|---|---|
 | 1 | SEC EDGAR | [`references/sec-edgar.md`](references/sec-edgar.md) | | **curl** + SEC JSON APIs | yes |
-| 2 | Yahoo Finance | [`references/yahoo-finance.md`](references/yahoo-finance.md) | | **curl** + quoteSummary JSON API | yes |
+| 2 | Yahoo Finance | [`references/yahoo-finance.md`](references/yahoo-finance.md) | best-effort | **curl** + quoteSummary JSON API | yes |
 | 3 | Google Finance + Google News RSS | [`references/google-finance.md`](references/google-finance.md) | | **curl** + RSS/lynx | yes |
 | 4 | Simply Wall Street | [`references/simply-wall-street.md`](references/simply-wall-street.md) | | **curl** + lynx | yes |
 | 5 | Zacks | [`references/zacks.md`](references/zacks.md) | (best-effort) | **curl** + lynx | yes |
@@ -90,7 +90,7 @@ Fetch in this order. Earlier sources are more reliable and give you enough to fi
 2. **Finviz** (WebFetch) — single page, most reliable scraped source, cheap confirmation the pipeline works
 3. **Stockanalysis.com** (curl + lynx) — 5Y financials, structural backfill for Yahoo
 4. **Macrotrends** (curl + lynx) — 10Y+ deep history, cycle context
-5. **Yahoo Finance** (curl + JSON API) — fundamentals and statistics
+5. **Yahoo Finance** (curl + JSON API) — **best-effort**, usually rate-limited; fundamentals/statistics cross-check when it succeeds
 6. **Google News RSS + Google Finance** (curl + RSS) — **news layer**, publisher distribution
 7. **Simply Wall Street** (WebSearch + curl + lynx) — snowflake + risks + narrative + competitor context
 8. **Seeking Alpha** (curl + lynx) — Quant Rating + Factor Grades (public sections only)

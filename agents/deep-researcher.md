@@ -42,14 +42,14 @@ Fetch in this order. Each source uses the tool prescribed in its reference file 
 | 2 | **Finviz** | **WebFetch** | `references/finviz.md` |
 | 3 | **Stockanalysis.com** | **Bash + curl + lynx** | `references/stockanalysis.md` |
 | 4 | **Macrotrends** | **WebSearch + Bash + curl + lynx** | `references/macrotrends.md` |
-| 5 | **Yahoo Finance** | **Bash + curl** (quoteSummary JSON API) | `references/yahoo-finance.md` |
+| 5 | **Yahoo Finance** | **Bash + curl** (quoteSummary JSON API) — **best-effort, usually rate-limited** | `references/yahoo-finance.md` |
 | 6 | **Google Finance + Google News RSS** | **Bash + curl** (RSS XML + lynx) | `references/google-finance.md` |
 | 7 | **Simply Wall Street** | **WebSearch + Bash + curl + lynx** | `references/simply-wall-street.md` |
 | 8 | **Seeking Alpha** | **Bash + curl + lynx** | `references/seeking-alpha.md` |
 | 9 | **Zacks** | **Bash + curl + lynx** (best-effort, fail fast on Cloudflare) | `references/zacks.md` |
 | 10 | **Reddit** | **Bash + curl** (.json endpoints) | `references/reddit.md` |
 
-SEC is the only source whose failure is fatal — the orchestrator aborts the deep-dive if it cannot reach SEC. **All other sources can individually fail without blocking the run.** Zacks in particular is best-effort and often fails to Cloudflare; accept it when it works, move on when it doesn't.
+SEC is the only source whose failure is fatal — the orchestrator aborts the deep-dive if it cannot reach SEC. **All other sources can individually fail without blocking the run.** Yahoo Finance and Zacks are both **best-effort** — observed success rate is near-zero in recorded sessions (Yahoo always rate-limits, Zacks always Cloudflare-challenges). Accept them when they work, move on silently when they don't. Do NOT retry on their first failure.
 
 **MODE=thesis — reduced set (5 sources):**
 SEC EDGAR (core concepts only), Finviz, Stockanalysis, Yahoo Finance JSON API, Google News RSS (for the headlines layer). Skip Macrotrends, SWS, SA, Zacks, Reddit unless specifically asked.

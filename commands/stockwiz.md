@@ -59,7 +59,7 @@ Write the initial `$SESSION_DIR/meta.json`:
   "ticker": "<TICKER>",
   "mode": "full",
   "horizon": "<HORIZON>",
-  "commandVersion": "0.3.3",
+  "commandVersion": "0.4.0",
   "createdAt": "<ISO 8601 with offset>",
   "status": "started",
   "stages": [],
@@ -77,16 +77,16 @@ Use the local timezone offset in `createdAt` — e.g. `2026-04-11T14:32:00-07:00
 Use `TodoWrite` to create the pipeline stages. This gives the user visibility into progress:
 
 ```
-1. Gather data from public sources (deep-researcher)
-2. Run four analysis skills (fundamental, sentiment, peer-comp, risk)
-3. Synthesize thesis (thesis-discipline full mode)
-4. Adversarial stress test (devils-advocate)
-5. Reconcile thesis with adversarial pass (thesis-discipline reconcile mode)
-6. Generate HTML report (report-writer)
+1. Gather data from public sources (deep-researcher agent)
+2. Run four analysis agents IN PARALLEL (fundamental, sentiment, peer-comp, risk)
+3. Synthesize thesis (thesis-discipline agent, full mode)
+4. Adversarial stress test (devils-advocate agent)
+5. Reconcile thesis with adversarial pass (thesis-discipline agent, reconcile mode)
+6. Generate HTML report (report-writer agent)
 7. Finalize session metadata
 ```
 
-all four analysis skills run sequentially in the main context before thesis synthesis. The devils-advocate subagent runs in an isolated Task context after thesis synthesis. The thesis-discipline skill is invoked twice — once in `full` mode to synthesize, once in `reconcile` mode to merge devils-advocate feedback.
+**v0.4.0 architectural note.** Every non-trivial unit of work in the pipeline is now a subagent dispatched via the `Task` tool — no Skills are loaded into the orchestrator's main context during a deep-dive. Stage 2's four analysis agents run **concurrently** (dispatched in a single message with four Task calls). Stages 1, 3, 4, 5, 6 dispatch one subagent each, sequentially, because each has a data dependency on the prior stage's output. `thesis-discipline` is invoked twice — once in `full` mode (Stage 3) to synthesize, once in `reconcile` mode (Stage 5) to merge devils-advocate feedback — each invocation is an independent Task with an isolated context.
 
 Mark stage 1 as in_progress.
 
@@ -134,90 +134,103 @@ Wait for the subagent to return. Read its summary.
 4. **If fewer than 3 sources succeeded in total**, also jump to Step 13 — there's not enough data to build a credible thesis even with the non-fatal sources intact.
 5. Otherwise, mark stage 1 complete in TodoWrite and proceed. It is fine (and expected) that some of SWS, SA, Yahoo may have failed — the thesis can still be built from the remaining sources.
 
-## Step 7 — Stage 2: Run four analysis skills
+## Step 7 — Stage 2: Dispatch four analysis agents IN PARALLEL
 
-Load each analysis skill in sequence and invoke it per its SKILL.md instructions. Each skill reads specific files from `SESSION_DIR/raw/` and writes its output to `SESSION_DIR/analysis/<name>.md`. They run sequentially because they're skills in the main context (not subagents) — parallelism would require wrapping each in a Task.
+**Previously sequential, now concurrent.** v0.3.x ran the four analysis skills sequentially in the main context, averaging ~32 minutes of wall-clock time (fundamental 10min + sentiment 9min + peer 5min + risk 8min). Measured Phase 2.5 sessions showed this was the single biggest-time artificial bottleneck in the pipeline. In v0.4.0 the four are subagents dispatched concurrently via the `Task` tool, so wall-clock time on this stage becomes `max(fundamental, sentiment, peer, risk)` ≈ 10 minutes, saving ~22 minutes per deep-dive.
 
-Before starting each analysis, check which raw sources succeeded by reading `meta.json.sources`. Skip any file with `status: failed`.
+The four analysis agents are mutually independent:
+- They read from `raw/` (immutable after Stage 1 completes)
+- They write to independent `analysis/<name>.md` files
+- They do NOT read each other's in-flight output
+- They do NOT touch `meta.json` — the orchestrator updates it after all four return
 
-### Stage 2a — fundamental-analysis
+**Dispatch pattern.** Issue **a single message with four `Task` tool calls**. Claude Code's Task tool runs them concurrently when launched in one message. Each subagent runs in its own isolated context.
 
-Load `${CLAUDE_PLUGIN_ROOT}/skills/fundamental-analysis/SKILL.md`. Follow its instructions to read from:
-- `raw/sec-edgar-10k.md` (XBRL facts)
-- `raw/stockanalysis.md` (5Y history + statistics)
-- `raw/finviz-snapshot.md` (current multiples)
-- `raw/yahoo-fundamentals.md` (cross-check, if status ok)
+For each subagent dispatch, the Task prompt should include:
 
-Write `analysis/fundamental.md` per the skill's output structure (Snapshot / Valuation Framing / Quality / Growth / Capital Structure / Ownership / Assumption Ledger / Unknowns).
+> Analyze the current session and write your output file.
+>
+> SESSION_DIR: `<absolute path to SESSION_DIR>`
+> TICKER: `<TICKER>`
+> HORIZON: `<HORIZON>`
+>
+> Read `SESSION_DIR/meta.json` to discover which `raw/` sources have `status: ok`. Skip failed sources. Follow your agent's hard rules for input discovery, output structure, and return format. Produce your output file at `SESSION_DIR/analysis/<your-slug>.md`. Do NOT touch `meta.json` — the orchestrator will update it after you return. Return a compact summary per your agent's return-summary spec.
 
-Append a stage entry to `meta.json.stages`.
+Dispatch four `Task` calls **in one message** (not sequentially):
 
-### Stage 2b — sentiment-synthesis
+1. **Agent `fundamental-analysis`** → produces `analysis/fundamental.md` (reads SEC, Stockanalysis, Macrotrends, Finviz, optionally Yahoo / SWS / Google Finance)
+2. **Agent `sentiment-synthesis`** → produces `analysis/sentiment.md` (reads Google News, SWS, SA, Zacks, Finviz, SEC 8-K, Reddit, optionally Yahoo / Stockanalysis)
+3. **Agent `peer-comparison`** → produces `analysis/peer-comp.md` (reads SWS competitor snowflakes, Finviz sector tags, Stockanalysis target metrics)
+4. **Agent `risk-screen`** → produces `analysis/risk.md` (reads Finviz, Stockanalysis, Macrotrends, SEC, SWS, SA, Google News)
 
-Load `${CLAUDE_PLUGIN_ROOT}/skills/sentiment-synthesis/SKILL.md`. Follow its instructions to read from:
-- `raw/simply-wall-street.md` (risks list, rewards, narrative — primary signal)
-- `raw/seeking-alpha.md` (factor grades if present; article teasers)
-- `raw/finviz-snapshot.md` (insider txns, short, analyst recom)
-- `raw/sec-edgar-10k.md` (recent 8-K for material events)
-- `raw/yahoo-fundamentals.md` (recommendationKey if present)
+Wait for all four to return. Each returns a compact summary (≤200 words) per its agent's return-summary spec.
 
-Write `analysis/sentiment.md` per the skill's output structure. Preserve source labels verbatim for later `<q>` wrapping in the report.
+### After all four return
 
-Append a stage entry.
+1. **Verify outputs exist.** For each of the four expected files under `SESSION_DIR/analysis/`, check that it was created and is non-empty. If a file is missing, mark that stage entry as failed but continue — downstream stages handle missing analysis files via fallbacks.
 
-### Stage 2c — peer-comparison
+2. **Append stage entries to `meta.json.stages`** — one per agent, from the compact summaries:
+   ```json
+   { "stage": "fundamental-analysis", "startedAt": "...", "endedAt": "...", "status": "ok", "output": "analysis/fundamental.md", "parallel": true }
+   { "stage": "sentiment-synthesis",  "startedAt": "...", "endedAt": "...", "status": "ok", "output": "analysis/sentiment.md",  "parallel": true }
+   { "stage": "peer-comparison",      "startedAt": "...", "endedAt": "...", "status": "ok", "output": "analysis/peer-comp.md",  "parallel": true }
+   { "stage": "risk-screen",          "startedAt": "...", "endedAt": "...", "status": "ok", "output": "analysis/risk.md",       "parallel": true }
+   ```
+   The `parallel: true` field is informational — it marks that these four ran concurrently so post-run timing analysis can tell.
 
-Load `${CLAUDE_PLUGIN_ROOT}/skills/peer-comparison/SKILL.md`. Follow its instructions. peers come from `raw/simply-wall-street.md` competitor snowflakes (free context — SWS typically includes 2–3 peers with their own scores).
+3. **Failure handling:**
+   - If **any single agent** returned an error or produced no output file, log its stage entry as `status: "failed"` with the error reason and continue. One or two analysis failures are non-fatal; thesis-discipline's fallback mode reads from raw files directly when an analysis file is missing.
+   - If **all four agents failed**, log four failed stage entries and set `meta.json.status = "degraded"`. Still not fatal — thesis-discipline will fall back entirely to raw files. But flag this prominently in the final summary so the user knows quality is reduced.
+   - If the **Task dispatch itself errors** (not an agent failure — an orchestration bug), that's fatal — jump to Step 13.
 
-Write `analysis/peer-comp.md`. If no peer data is available (SWS failed or didn't provide competitors), write a minimal file noting the limitation and move on.
+Mark Stage 2 complete in TodoWrite.
 
-Append a stage entry.
+### Why this isn't a race condition
 
-### Stage 2d — risk-screen
+The four agents write to four independent files (`analysis/fundamental.md`, `analysis/sentiment.md`, `analysis/peer-comp.md`, `analysis/risk.md`) — no file is written by more than one agent. None of them touches `meta.json` — only the orchestrator updates it, and only after all four return. The `raw/` files are read-only at this point in the pipeline (deep-researcher finished writing them in Stage 1, nothing modifies them afterward). There is no shared mutable state.
 
-Load `${CLAUDE_PLUGIN_ROOT}/skills/risk-screen/SKILL.md`. Follow its instructions to read from:
-- `raw/finviz-snapshot.md` (beta, ATR, volatility, 52w range, short)
-- `raw/stockanalysis.md` (5Y beta, interest coverage, debt ratios)
-- `raw/sec-edgar-10k.md` (debt position)
-- `raw/simply-wall-street.md` (SWS risks as tail risks)
+### Why NOT to sequentialize as a fallback
 
-Write `analysis/risk.md` per the skill's output structure.
-
-Append a stage entry. Mark stage 2 complete in TodoWrite.
-
-**If any analysis skill fails** (e.g. its primary raw inputs are all `status: failed`), write a minimal stub `analysis/<name>.md` noting the failure and continue. Downstream stages will render thin fallbacks. A single analysis skill failure is not fatal.
+Do NOT fall back to sequential dispatch "for safety". The parallel pattern is the whole point of this refactor — sequential would reintroduce the ~22 minutes of artificial latency we just eliminated. The `Task` tool documentation explicitly supports concurrent subagent dispatch via multiple tool uses in one message. Trust it.
 
 ## Step 8 — Stage 3: Synthesize thesis with thesis-discipline (full mode)
 
-Load the `thesis-discipline` skill (read `${CLAUDE_PLUGIN_ROOT}/skills/thesis-discipline/SKILL.md`) and follow its `full` mode instructions.
+**v0.4.0 change:** `thesis-discipline` is now a subagent (not a Skill), dispatched via `Task`. This runs it in an isolated context that reads only the four analysis files (or raw/ fallbacks), not the orchestrator's accumulated state. Expected speedup: reduces Stage 3 from ~12 min to ~4-6 min by eliminating main-context bloat.
 
-**Primary inputs** (preferred — from Stage 2 outputs):
-- `$SESSION_DIR/analysis/fundamental.md`
-- `$SESSION_DIR/analysis/sentiment.md`
-- `$SESSION_DIR/analysis/peer-comp.md`
-- `$SESSION_DIR/analysis/risk.md`
+Use the `Task` tool to invoke the `thesis-discipline` subagent. Pass it this prompt:
 
-Check each file for non-empty content (not just file existence — the analysis skills may have written stub files on failure). For any file that is missing or is a failure stub, fall back to reading the corresponding raw files directly per the skill's fallback mode.
+> Synthesize an investment thesis from completed analysis files.
+>
+> MODE: full
+> SESSION_DIR: `<absolute path>`
+> TICKER: `<TICKER>`
+> HORIZON: `<HORIZON>`
+>
+> Read the four analysis files (`analysis/fundamental.md`, `analysis/sentiment.md`, `analysis/peer-comp.md`, `analysis/risk.md`). Check each for `status: ok` content; for any that are missing or are failure stubs, fall back to reading the corresponding `raw/` files directly per your agent's fallback mode.
+>
+> Write `SESSION_DIR/thesis.md` with the mandatory sections: Bull Case / Base Case / Bear Case / Explicit Disconfirmers / Kill Switches / Unknowns. Each case must have a one-sentence Headline, and if the Headline exceeds 140 characters, produce a Compact headline (≤100 characters) alongside for the TL;DR panel. Every claim cited. Base case must be its own scenario (not an average). Kill switches must be measurable (metric + threshold + time window). Unknowns ordered by materiality (most material first).
+>
+> Return a ≤200-word summary per your agent's return-summary spec for `full` mode.
 
-Write `$SESSION_DIR/thesis.md` with the mandatory sections from the skill:
+Wait for the subagent to return. Read its summary.
 
+Append a stage entry to `meta.json.stages`:
+```json
+{
+  "stage": "thesis-discipline-full",
+  "startedAt": "...",
+  "endedAt": "...",
+  "status": "ok",
+  "output": "thesis.md",
+  "fallbackMode": false
+}
 ```
-## Bull Case
-## Base Case
-## Bear Case
-## Explicit Disconfirmers
-## Kill Switches
-## Unknowns
-```
 
-Key rules the skill enforces:
+Set `fallbackMode: true` if the agent reported reading from `raw/` directly (because analysis files were missing).
 
-- Every claim has a citation to an `analysis/` or `raw/` file
-- Base case is its own scenario, not a midpoint
-- Kill switches are measurable (specific threshold + time window + source)
-- Unknowns is first-class — when analyses flagged limitations, those become Unknowns here
+If the thesis-discipline agent fails entirely (returns an error or no output file), jump to Step 13 (fatal). A thesis is not optional — if we can't build one, there's nothing to run devils-advocate against.
 
-Append a stage entry. Mark stage 3 complete.
+Mark Stage 3 complete.
 
 ## Step 9 — Stage 4: Devils-advocate adversarial pass
 
@@ -256,26 +269,41 @@ Mark stage 4 complete.
 
 ## Step 10 — Stage 5: Reconcile thesis with adversarial pass
 
-Load the `thesis-discipline` skill again, this time in `reconcile` mode (per the skill's SKILL.md). Pass it both:
+**v0.4.0 change:** `thesis-discipline` reconcile is now a subagent dispatched via `Task`, running in an isolated context that reads only `thesis.md` + `analysis/devils-advocate.md`. Expected speedup: Phase 2.5 measurements showed this stage taking 8 min on SNOW due to main-context bloat; isolated it should drop to 2-3 min.
 
-- `SESSION_DIR/thesis.md` (the existing thesis from Stage 3)
-- `SESSION_DIR/analysis/devils-advocate.md` (the adversarial pass from Stage 4)
+**If devils-advocate was skipped or failed in Stage 4**, skip this reconcile step entirely. `thesis.md` remains as Stage 3 wrote it. Record a stage entry with `status: "skipped"` and `reason: "devils-advocate-unavailable"`.
 
-The skill will append a `## Adjustments After Stress Test` section to `thesis.md` if devils-advocate raised material issues. The original bull/base/bear claims are preserved verbatim — adjustments live in their own section as an audit trail of what the stress test changed.
+Otherwise, use the `Task` tool to invoke the `thesis-discipline` subagent in `reconcile` mode:
 
-**If devils-advocate was skipped or failed in Stage 4**, skip this reconcile step. thesis.md remains as Stage 3 wrote it.
+> Reconcile adversarial feedback into an existing investment thesis.
+>
+> MODE: reconcile
+> SESSION_DIR: `<absolute path>`
+> TICKER: `<TICKER>`
+>
+> Read `SESSION_DIR/thesis.md` (the existing thesis from Stage 3) and `SESSION_DIR/analysis/devils-advocate.md` (the adversarial pass from Stage 4). Identify which of devils-advocate's Weakest Claims are materially correct (specific counter-data with citations, not just rhetorical attacks) and which Kill Switch Adequacy verdicts include concrete rewrites.
+>
+> Append a new section `## Adjustments After Stress Test` to `thesis.md` (just before `## Unknowns`). The original bull/base/bear claims MUST be preserved verbatim — adjustments live in their own section as an audit trail. If devils-advocate raised no material issues, write a short section noting the thesis was found internally consistent.
+>
+> Return a ≤200-word summary per your agent's return-summary spec for `reconcile` mode.
 
-Append a stage entry:
+Wait for the subagent to return.
+
+Append a stage entry to `meta.json.stages`:
 ```json
 {
   "stage": "thesis-reconcile",
+  "startedAt": "...",
+  "endedAt": "...",
   "status": "ok",
   "adjustmentsApplied": N,
   "killSwitchesTightened": M
 }
 ```
 
-Mark stage 5 complete.
+If reconcile fails (returns error or thesis.md wasn't modified when it should have been), log as `status: "failed"` and continue. Non-fatal — the report-writer will render the original thesis without adjustments. The adversarial appendix still shows devils-advocate's findings; the user can see the delta manually even without the reconcile merge.
+
+Mark Stage 5 complete.
 
 ## Step 11 — Stage 6: Generate HTML report
 

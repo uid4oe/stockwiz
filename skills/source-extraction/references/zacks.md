@@ -1,6 +1,6 @@
 # Zacks
 
-**Status:** active. Unique data points (Zacks Rank, Style Scores) that are not replicated by any other free source. Historically Cloudflare-challenged — we fail fast on challenge pages and skip rather than fighting.
+**Status:** **best-effort / usually fails.** Zacks has been bot-challenged (Cloudflare/Imperva) in every recorded stockwiz session. When it works, its data is unique (Zacks Rank and VGM Style Scores are not replicated by any other free source), but our observed success rate is near zero. Retained in the fetch plan as a best-effort source: if it works, we get the unique ratings; if not (likely), we fail fast on the challenge page and move on with zero retries. A headless-Chrome fallback is on the roadmap but not yet implemented.
 **Access method:** **`Bash` + `curl`** with browser User-Agent. Aggressive failure detection.
 **Rate policy:** 1500ms delay; **zero retries** on Cloudflare challenge (they don't clear in seconds).
 

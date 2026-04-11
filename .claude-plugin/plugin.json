@@ -1,6 +1,6 @@
 {
   "name": "stockwiz",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "Deep-dive US equity research assistant with adversarial bull/bear/base theses, peer comparison, and self-contained HTML artifacts. https://github.com/uid4oe/stockwiz",
   "author": {
     "name": "uid4oe",

@@ -2,6 +2,82 @@
 
 All notable changes to stockwiz are documented in this file.
 
+## [0.4.0] — 2026-04-11
+
+### Parallelization refactor — skills → agents for the analysis layer
+
+**Motivation:** timing data from five recorded sessions showed that deep-dive runs took 60–78 minutes of wall-clock time, and the single biggest-time artificial bottleneck was Stage 2 — the four analysis skills (`fundamental-analysis`, `sentiment-synthesis`, `peer-comparison`, `risk-screen`) running **sequentially in the main context**, totaling ~32 minutes on SNOW. On top of that, `thesis-discipline` was also a Skill running in the main context; its reconcile mode specifically was slowed by accumulated context bloat (8 min on SNOW vs 3 min on MBLY).
+
+**Change:** converted all five work units from Skills to agents. The four analysis agents are now dispatched **concurrently** in a single message with four `Task` calls at Stage 2, running in parallel in isolated contexts. `thesis-discipline` became a single agent supporting `full` and `reconcile` modes via a MODE parameter, dispatched independently at Stage 3 and Stage 5.
+
+**Measured impact** (projected from Phase 2.5 session data):
+
+| Stage | v0.3.x (sequential) | v0.4.0 (parallel) | Savings |
+|---|---|---|---|
+| Stage 2 (four analyses) | ~32 min | ~10 min (max of four) | ~22 min |
+| Stage 3 (thesis full) | ~12 min (main-context bloat) | ~4-6 min (isolated) | ~6 min |
+| Stage 5 (reconcile) | ~8 min (main-context bloat) | ~2-3 min (isolated) | ~5 min |
+| **Total wall-clock** | **~78 min** | **~45 min** | **~42%** |
+
+**New agents** (`agents/`):
+
+- `fundamental-analysis.md` — isolated-context analyst that reads SEC + Stockanalysis + Macrotrends + Finviz (+ optional Yahoo/SWS/Google Finance), writes `analysis/fundamental.md`
+- `sentiment-synthesis.md` — isolated-context analyst that reads Google News + SWS + SA + Zacks + Finviz + SEC 8-K + Reddit, applies the weighting rubric and publisher-distribution signal, writes `analysis/sentiment.md`
+- `peer-comparison.md` — isolated-context analyst that reads SWS competitor snowflakes, writes `analysis/peer-comp.md`
+- `risk-screen.md` — isolated-context analyst that reads Finviz + Stockanalysis + Macrotrends + SEC + SWS + SA + Google News, writes `analysis/risk.md`
+- `thesis-discipline.md` — isolated-context synthesizer supporting `full` / `reconcile` / `drift` (dormant) / `implicit` (dormant) modes via a MODE parameter; writes or appends to `thesis.md`
+
+Each analysis agent has `tools: Read, Write, Grep, Bash` (no WebFetch/WebSearch — they work from cached raw data only). Each pins `model: sonnet`. Each agent's body includes a "you run in isolation, read only specific raw files, write exactly one file, never touch meta.json" section.
+
+**Deleted skills** (`skills/`):
+
+- `skills/fundamental-analysis/` (directory removed)
+- `skills/sentiment-synthesis/`
+- `skills/peer-comparison/`
+- `skills/risk-screen/`
+- `skills/thesis-discipline/`
+
+**Only two skills remain**, both pure reference libraries:
+
+- `skills/source-extraction/` — per-source extraction specs consulted by deep-researcher
+- `skills/report-generation/` — HTML template + compliance rules + assets consulted by report-writer
+
+**Orchestrator changes** (`commands/stockwiz.md`):
+
+- **Stage 2 rewritten** for parallel Task dispatch. A single message issues four `Task` calls concurrently. Each Task prompt passes `SESSION_DIR`, `TICKER`, `HORIZON`. The orchestrator waits for all four to return, then appends stage entries with `parallel: true` to meta.json.
+- **Stage 3 rewritten** to dispatch `thesis-discipline` (MODE=full) via `Task`. Same pattern as devils-advocate — isolated context, compact return summary.
+- **Stage 5 rewritten** to dispatch `thesis-discipline` (MODE=reconcile) via `Task`. Reads only thesis.md + analysis/devils-advocate.md. Append-only to thesis.md.
+- **Step 5 todo list updated** to reflect "IN PARALLEL" for Stage 2 and "agent" labels for each stage.
+- **Architectural note added** — no skills are loaded into the orchestrator's main context during a deep-dive. Every work unit is an agent.
+- **Race condition notes added** — the four parallel agents write to four independent files and do NOT touch meta.json. The orchestrator is the single writer of meta.json. No shared mutable state.
+
+**Yahoo Finance and Zacks demoted to "best-effort"**
+
+Both have failed in 100% of recorded sessions (Yahoo → rate-limited, Zacks → Cloudflare/Imperva). They remain in the fetch plan for cross-check value when they happen to succeed, but:
+
+- Their status badges in source-extraction/SKILL.md and deep-researcher.md now read "best-effort"
+- Their reference files explicitly acknowledge the ~0% observed success rate
+- deep-researcher's source-specific mechanics section notes "accept them when they work, move on silently when they don't, do NOT retry"
+
+This doesn't save wall-clock time directly (they still fail fast) but it sets accurate user expectations.
+
+**Architecture doc updated** (`docs/architecture.md`):
+
+- State-flow diagram rewritten to show the Stage 2 parallel dispatch block
+- "Current assignments" table updated: 8 agents (was 3), 2 skills (was 8)
+- Historical note added explaining the v0.4.0 refactor and the measured savings
+- "How to add a new analysis agent" section rewritten (was "add a new analysis skill")
+
+**What's intentionally NOT changed in this release**
+
+- deep-researcher remains a single agent (its internal source fetches are inherently sequential due to 1500ms politeness delays; parallelizing across hosts adds complexity without much wall-clock savings since each source's latency is dominated by LLM extraction, not network)
+- devils-advocate unchanged (already an agent)
+- report-writer unchanged (already an agent)
+- compliance-rules.md and the pre-filter guidance unchanged
+- No visible changes in the user-facing UX (same command, same output format, same session workspace layout)
+
+**Version metadata:** `plugin.json` and `meta.json.commandVersion` bumped to **0.4.0**.
+
 ## [0.3.3] — 2026-04-11
 
 ### Fix invalid plugin manifest schema

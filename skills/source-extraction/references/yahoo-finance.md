@@ -1,6 +1,8 @@
 # Yahoo Finance
 
-**Status:** active. Valuable for fundamentals and statistics, but the public HTML pages are React-rendered and heavily gated. We fetch the **undocumented JSON quoteSummary API** that yfinance-style tools use, via curl with a browser User-Agent and cookie handling.
+**Status:** **best-effort / usually fails.** Yahoo has been rate-limited or 503'd in every recorded stockwiz session (5 of 5) — the quoteSummary JSON API is aggressively throttling unauthenticated requests, and the crumb retry path also fails consistently. Yahoo is retained in the fetch plan as a best-effort cross-check, but stockwiz does NOT depend on it for any critical path. If Yahoo succeeds, the data is a useful third-source verification of P/E, margins, ownership, and short interest. If (more likely) it fails, the deep-researcher marks it failed and moves on — Stockanalysis and Finviz carry the load.
+
+**Historically valuable for** fundamentals and statistics, but the public HTML pages are React-rendered and heavily gated. We fetch the **undocumented JSON quoteSummary API** that yfinance-style tools use, via curl with a browser User-Agent and cookie handling. The infrastructure is correct; Yahoo's rate-limit posture is the limiting factor.
 **Access method:** **`Bash` + `curl`** (not WebFetch). Yahoo's HTML pages return either an empty JavaScript skeleton or a 503 to non-browser UAs; the JSON API needs a cookie from a prior visit to `finance.yahoo.com` and sometimes a crumb token.
 **Rate policy:** 1500ms delay; one retry on transient failure.
 
