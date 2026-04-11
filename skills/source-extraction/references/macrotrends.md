@@ -191,7 +191,7 @@ status: ok
 
 10-year revenue CAGR: ~30.0% (computed: 215938/4990 = 43.3x, 43.3^(1/10) ≈ 1.46 → 45.9%) — verify manually
 
-Actually, DO NOT compute CAGRs in the raw file. The fundamental-analysis skill will compute them downstream. Just capture the raw table verbatim.
+Actually, DO NOT compute CAGRs in the raw file. The fundamental-analysis agent will compute them downstream. Just capture the raw table verbatim.
 
 ## Net income history (annual, $ millions)
 

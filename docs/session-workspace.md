@@ -39,10 +39,10 @@ stockwiz writes to two root directories: `~/Projects/stockwiz/` (the plugin sour
         │   ├── reddit-investing.json
         │   └── _sanity.md                   # optional, cross-source disagreements
         └── analysis/                        # analyst outputs — structured markdown
-            ├── fundamental.md               # fundamental-analysis skill output
-            ├── sentiment.md                 # sentiment-synthesis skill output
-            ├── peer-comp.md                 # peer-comparison skill output
-            ├── risk.md                      # risk-screen skill output
+            ├── fundamental.md               # fundamental-analysis agent output
+            ├── sentiment.md                 # sentiment-synthesis agent output
+            ├── peer-comp.md                 # peer-comparison agent output
+            ├── risk.md                      # risk-screen agent output
             └── devils-advocate.md           # devils-advocate agent output
 ```
 
@@ -63,12 +63,12 @@ These are cleaned up by the fetching source's reference file at end-of-source. I
 | `cache/company_tickers.json` | `deep-researcher` (first SEC fetch) | `deep-researcher` | refreshed every 30 days | yes |
 | `cache/macrotrends-slugs.json` | `deep-researcher` (first Macrotrends fetch on new ticker) | `deep-researcher` | append-only | yes |
 | `sessions/<T>-<t>/meta.json` | `/stockwiz` Step 4 | every stage | **yes — multi-writer, see below** | yes |
-| `sessions/<T>-<t>/raw/*.md` | `deep-researcher` | analysis skills, report-writer | **no — immutable audit trail** | yes |
+| `sessions/<T>-<t>/raw/*.md` | `deep-researcher` | analysis agents, thesis-discipline, report-writer | **no — immutable audit trail** | yes |
 | `sessions/<T>-<t>/raw/*.json` | `deep-researcher` | debugging only | no | yes |
-| `sessions/<T>-<t>/analysis/fundamental.md` | `fundamental-analysis` skill | `thesis-discipline`, `report-writer` | no | yes |
-| `sessions/<T>-<t>/analysis/sentiment.md` | `sentiment-synthesis` skill | `thesis-discipline`, `report-writer` | no | yes |
-| `sessions/<T>-<t>/analysis/peer-comp.md` | `peer-comparison` skill | `thesis-discipline`, `report-writer` | no | yes |
-| `sessions/<T>-<t>/analysis/risk.md` | `risk-screen` skill | `thesis-discipline`, `report-writer` | no | yes |
+| `sessions/<T>-<t>/analysis/fundamental.md` | `fundamental-analysis` agent | `thesis-discipline`, `report-writer` | no | yes |
+| `sessions/<T>-<t>/analysis/sentiment.md` | `sentiment-synthesis` agent | `thesis-discipline`, `report-writer` | no | yes |
+| `sessions/<T>-<t>/analysis/peer-comp.md` | `peer-comparison` agent | `thesis-discipline`, `report-writer` | no | yes |
+| `sessions/<T>-<t>/analysis/risk.md` | `risk-screen` agent | `thesis-discipline`, `report-writer` | no | yes |
 | `sessions/<T>-<t>/analysis/devils-advocate.md` | `devils-advocate` agent | `thesis-discipline` reconcile, `report-writer` | no | yes |
 | `sessions/<T>-<t>/thesis.md` | `thesis-discipline` full mode | `devils-advocate`, `thesis-discipline` reconcile, `report-writer` | **yes — reconcile appends `## Adjustments After Stress Test`, never overwrites existing sections** | yes |
 | `sessions/<T>-<t>/report.html` | `report-writer` agent | end user | no (re-runs create new session dir) | yes |
@@ -80,11 +80,11 @@ These are cleaned up by the fetching source's reference file at end-of-source. I
 
 `raw/*.md` files are **never modified** after they are first written by `deep-researcher`. They are the audit trail. Downstream stages read them; if they need derived information they write it to `analysis/`, not back to `raw/`. This is a hard rule — violations destroy auditability.
 
-`analysis/*.md` files are written once by their owning skill and then only read by downstream stages. The owning skill is the sole writer of its file.
+`analysis/*.md` files are written once by their owning agent and then only read by downstream stages. The owning agent is the sole writer of its file.
 
 ### Append-only mutation
 
-`thesis.md` is written by `thesis-discipline` in `full` mode, then the same skill in `reconcile` mode appends a `## Adjustments After Stress Test` section. The bull/base/bear case bodies are **never rewritten** — reconcile adds a new section that records the delta, preserving the original claims verbatim for audit.
+`thesis.md` is written by the `thesis-discipline` agent in `full` mode, then the same agent in `reconcile` mode appends a `## Adjustments After Stress Test` section. The bull/base/bear case bodies are **never rewritten** — reconcile adds a new section that records the delta, preserving the original claims verbatim for audit.
 
 ### Read-modify-write
 

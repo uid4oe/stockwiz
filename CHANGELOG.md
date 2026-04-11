@@ -2,6 +2,64 @@
 
 All notable changes to stockwiz are documented in this file.
 
+## [0.4.1] — 2026-04-11
+
+### Language migration finish — completes the 0.4.0 skill→agent refactor
+
+A self-review of 0.4.0 surfaced ~25 stale "analysis skill" / "thesis-discipline skill" / "your SKILL.md" phrases scattered across 11 files that the structural refactor missed. Three of them were inside Task prompts the orchestrator passes to subagents at runtime — meaning subagents would see incorrect descriptions of how their inputs were produced. The rest were documentation drift in commands, agents, docs, README, and reference files. None of it is structurally wrong (the actual agents, file paths, and dispatch patterns are correct in 0.4.0), but the prose lies about it everywhere.
+
+This release is **language-migration only**. No behavior changes. No new features. No version of the structural refactor is undone.
+
+**Runtime-visible Task prompts fixed** (orchestrator → subagent dispatch):
+- `commands/stockwiz.md:317` — Stage 6 report-writer prompt: "from the four analysis skills" → "produced by the four analysis agents dispatched in parallel at Stage 2"
+- `commands/stockwiz.md:321,331` — Two references to "Step 5 of your SKILL.md" / "Step 6.5 of your SKILL.md" → "your agent instructions". report-writer is `agents/report-writer.md`, not a SKILL.md.
+
+**Orchestrator narrative fixed**:
+- `commands/stockwiz.md:442,458` — Edge case descriptions for analysis failure paths now say "agent" not "skill"
+- `commands/stockwiz.md:472` — "What success looks like" paragraph (the one that contradicted the just-committed Stage 2 rewrite) — now describes the parallel dispatch pattern, the per-stage timing, and the ~45-minute end-to-end target
+
+**Agent body refs fixed**:
+- `agents/report-writer.md:97,113` — Two "the thesis-discipline skill" references in the TL;DR atom curation steps → "the thesis-discipline agent"
+- `agents/devils-advocate.md:29,44` — Two "thesis-discipline skill" references → "agent"
+- `agents/deep-researcher.md:196` — Hard rule about not writing to analysis/ now correctly references "the four analysis agents" instead of "analysis skills"
+
+**docs/architecture.md fixed (6 stale refs)**:
+- Line 24 (the core principle statement) — "The analyst (four analysis skills + thesis-discipline + devils-advocate + report-writer)" → "The analyst (four analysis agents dispatched in parallel at Stage 2 — fundamental-analysis, sentiment-synthesis, peer-comparison, risk-screen — plus the thesis-discipline agent, the devils-advocate agent, and the report-writer agent)". This is the most important single fix in 0.4.1 because it's the textual statement of the architectural invariant.
+- Line 31 — "Don't let analysis skills re-fetch" → "Don't let analysis agents re-fetch (enforced by their tool lists — no WebFetch/WebSearch)"
+- Line 160 — failure mode explanation
+- Line 233 — pre-filter compliance reference, with note explaining the section is named "skill authors" for historical reasons
+- Lines 242, 245 — "How to add a new source" guidance corrected
+- Historical note at line 202 (which describes v0.3.x correctly) intentionally preserved.
+
+**docs/session-workspace.md fixed (8 stale refs)**:
+- Directory tree annotations (lines 43-45) — "skill output" → "agent output" for all four analysis files
+- File lifecycle table (lines 66, 68-71) — "Created by ... skill" → "agent" for all five
+- Multi-writer rules section (lines 83, 87) — "owning skill" → "owning agent"
+
+**README.md fixed**:
+- Main description paragraph rewritten to mention "dispatch four analysis agents in parallel" instead of "run four analysis skills"
+- Roadmap "Parallel analysis skills" item struck through and marked **✓ delivered in 0.4.0** with a note that the projected 42% speedup is pending end-to-end validation
+
+**Reference doc refs fixed (4 stale refs)**:
+- `compliance-rules.md:52` — abort error description now references the agents that would need to be fixed upstream
+- `deep-dive-template.md:226` — "thesis-discipline skill" → "agent"
+- `simply-wall-street.md:164` — note about SWS feeding bear-case inputs now correctly traces the data flow through sentiment-synthesis agent → thesis-discipline agent
+- `macrotrends.md:194` — "fundamental-analysis skill will compute" → "agent will compute"
+
+**Internal consistency fixes**:
+
+- **Return-summary word limits aligned.** Two of the four parallel analysis agents (`peer-comparison`, `risk-screen`) said "Return ≤150 words" while the other two and the orchestrator's Stage 2 prompt said "≤200". All four now say ≤200, matching the orchestrator's expectation.
+
+- **thesis-discipline MODE error handling added.** The agent now has an explicit "MODE dispatch and error handling" section that branches on the four documented modes (`full`, `reconcile`, `drift`, `implicit`) and returns a clear error string for unknown/missing/dormant modes rather than silently guessing. Hardening for a class of bug that was theoretical-only — the orchestrator always passes a valid MODE — but worth defending against.
+
+**Token-cost honesty note** (added to the 0.4.0 entry retroactively):
+
+The 0.4.0 CHANGELOG framed the refactor as a wall-clock win (~78 min → ~45 min, ~42% reduction) but did not discuss token cost. The full picture: running four agents in parallel means four isolated contexts each re-loading raw file content, rather than reading it once into the orchestrator's main context and sharing it across four sequential skill invocations. **Token cost is therefore similar or slightly higher than the v0.3.x sequential pattern, not lower.** The win is wall-clock latency, not API spend. For users running many analyses per week, the per-run cost is roughly unchanged; for users running a single analysis and waiting for it, the latency improvement is the entire benefit. This was an honesty gap in 0.4.0's release notes.
+
+**Verification**: post-fix grep of `analysis skill[s]` and `thesis-discipline skill` across all non-CHANGELOG files returns only the legitimate `skills/source-extraction/SKILL.md` and `skills/report-generation/SKILL.md` references (those two are still skills — pure reference libraries) and the historical-note paragraph in `docs/architecture.md` line 202 that describes v0.3.x correctly.
+
+`plugin.json` and `meta.json.commandVersion` bumped to **0.4.1**.
+
 ## [0.4.0] — 2026-04-11
 
 ### Parallelization refactor — skills → agents for the analysis layer

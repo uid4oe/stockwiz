@@ -109,7 +109,7 @@ Just the shape, not advice.
 
 ### Step 4 — Return summary
 
-Return ≤150 words:
+Return ≤200 words:
 
 ```
 **Peer comparison written.** SESSION_DIR/analysis/peer-comp.md

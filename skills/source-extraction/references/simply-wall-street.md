@@ -161,4 +161,4 @@ SWS's rewards and risks lists often contain words like "undervalued", "overvalue
 
 ## On the sentiment value
 
-Simply Wall St is one of the three "sentiment-rich" sources (SWS, Seeking Alpha, TradingView) that give stockwiz its character beyond pure numbers. The SWS snowflake is a compact alternative view; the risks list is often where stockwiz's thesis-discipline skill pulls half its bear-case inputs from. Treat this source as important even though it's "soft" data.
+Simply Wall St is one of the three "sentiment-rich" sources (SWS, Seeking Alpha, TradingView) that give stockwiz its character beyond pure numbers. The SWS snowflake is a compact alternative view; the risks list is often where stockwiz's thesis-discipline agent pulls half its bear-case inputs from (via the sentiment-synthesis agent's capture of the SWS risks list). Treat this source as important even though it's "soft" data.

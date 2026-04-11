@@ -219,7 +219,7 @@ Write to `raw/google-finance.md`. Also save the raw XML to `raw/google-news-feed
 
 ## A note on the publisher distribution metric
 
-The publisher distribution (Reuters X, Bloomberg Y, Seeking Alpha Z...) is a unique signal. A stock where the recent news mix is dominated by wire services (Reuters, Bloomberg, AP) is typically in the "something is happening" state — earnings, M&A, regulatory, macro. A stock where the mix is dominated by opinion publishers (Seeking Alpha, Benzinga, Motley Fool) is typically in the "retail narrative" state — momentum, meme, speculation. The two states are both useful to know about and neither is "better" — but they're different signals. The sentiment-synthesis skill should factor this into its recency-weighted news section.
+The publisher distribution (Reuters X, Bloomberg Y, Seeking Alpha Z...) is a unique signal. A stock where the recent news mix is dominated by wire services (Reuters, Bloomberg, AP) is typically in the "something is happening" state — earnings, M&A, regulatory, macro. A stock where the mix is dominated by opinion publishers (Seeking Alpha, Benzinga, Motley Fool) is typically in the "retail narrative" state — momentum, meme, speculation. The two states are both useful to know about and neither is "better" — but they're different signals. The sentiment-synthesis agent should factor this into its recency-weighted news section.
 
 ## Compliance note
 

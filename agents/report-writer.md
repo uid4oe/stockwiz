@@ -94,7 +94,7 @@ If the fundamental or sentiment files are missing (raw-only fallback), pick from
 
 #### Atom B — Closest kill switch
 
-Read `thesis.md` § Kill Switches. Each kill switch should have a current reading and a trigger threshold (the thesis-discipline skill enforces this). Compute the margin between current and trigger for each:
+Read `thesis.md` § Kill Switches. Each kill switch should have a current reading and a trigger threshold (the thesis-discipline agent enforces this). Compute the margin between current and trigger for each:
 
 - For percentage metrics (gross margin, FCF margin, short float): margin in percentage points
 - For dollar metrics (cash, debt, target prices): margin as a percentage of current value
@@ -110,7 +110,7 @@ If no kill switch has a computed margin (e.g. all are structural like "short flo
 
 #### Atom C — Biggest unknown
 
-Read `thesis.md` § Unknowns. The list is already prioritized by the thesis-discipline skill (most material first). Take the first item. If it's longer than one sentence, tighten to one sentence while preserving the specific thing that's unknown and why it matters. Cite the source file that would have had it if it existed.
+Read `thesis.md` § Unknowns. The list is already prioritized by the thesis-discipline agent (most material first per the four materiality ranking criteria documented in that agent's body). Take the first item. If it's longer than one sentence, tighten to one sentence while preserving the specific thing that's unknown and why it matters. Cite the source file that would have had it if it existed.
 
 Example:
 - Original in thesis.md: "Customer concentration: the 10-K narrative section (business description, risk factors, MD&A) was not extracted. The degree of data-center revenue tied to the top 4 hyperscalers is material to the bear case but cannot be cited from current raw files."

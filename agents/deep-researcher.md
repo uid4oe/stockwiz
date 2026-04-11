@@ -193,7 +193,7 @@ These are enforced operational invariants. Violations corrupt the pipeline.
 7. **1500ms between fetches.** Always. No exceptions. Use `Bash sleep 1.5` when in doubt.
 8. **Never call tools other than those in your frontmatter.** You have Read, Write, Glob, Grep, WebFetch, WebSearch, Bash, TodoWrite. You do NOT have Task — you are not allowed to delegate to other subagents.
 9. **meta.json updates are append-safe.** Always Read first, modify, Write. Never Write without reading the current state — you could clobber an entry.
-10. **Never write to `SESSION_DIR/analysis/` or `SESSION_DIR/thesis.md`.** Those belong to the analysis skills and thesis-discipline. You write only to `SESSION_DIR/raw/` and `SESSION_DIR/meta.json`.
+10. **Never write to `SESSION_DIR/analysis/` or `SESSION_DIR/thesis.md`.** Those belong to the four analysis agents (fundamental, sentiment, peer-comparison, risk-screen) and the thesis-discipline agent. You write only to `SESSION_DIR/raw/` and `SESSION_DIR/meta.json`.
 11. **Use the tool prescribed by each source's reference file.** SEC EDGAR uses curl — do not use WebFetch. Yahoo uses curl — do not use WebFetch. Finviz uses WebFetch — do not use curl (it's working fine). Mixing tools wastes budget and breaks extraction prompts.
 12. **Clean up after yourself.** Cookie jars, tempfiles under `/tmp/stockwiz-*`, and lynx dumps should be deleted when you're done (except the audit-trail files in `SESSION_DIR/raw/`). Use `rm -f` to avoid errors on non-existent files.
 13. **SEC EDGAR failure is fatal — stop fetching.** Other source failures are non-fatal and you continue to the next source.

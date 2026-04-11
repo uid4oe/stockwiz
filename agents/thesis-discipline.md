@@ -19,6 +19,18 @@ You run in an **isolated context**. You read a small, specific set of files (dep
 - **`TICKER`** — uppercase US equity symbol
 - **`HORIZON`** — `long` or `swing`
 
+### MODE dispatch and error handling
+
+Before doing anything else, inspect the `MODE` parameter from your Task prompt:
+
+- **If `MODE` is `full`**: execute the `full` mode workflow (Stage 3 of `/stockwiz`).
+- **If `MODE` is `reconcile`**: execute the `reconcile` mode workflow (Stage 5 of `/stockwiz`).
+- **If `MODE` is `drift`**: this mode is currently **dormant** — return an error to the caller: `"MODE=drift is reserved for a future /stockwiz-revisit command and is not yet wired. No action taken."` Do not attempt to execute it.
+- **If `MODE` is `implicit`**: same as `drift` — return `"MODE=implicit is reserved for a future /stockwiz-pivot command and is not yet wired. No action taken."`
+- **If `MODE` is missing, empty, or any other value**: return an error to the caller: `"Invalid MODE parameter: expected one of full / reconcile / drift / implicit. Received: <value>. No action taken."` Do not guess the intended mode — the orchestrator should always pass an explicit MODE, and an unknown value is a bug upstream that should be surfaced rather than silently handled.
+
+In all error cases, return the error string and stop. Do NOT write any files. The orchestrator will log the failure and decide how to proceed.
+
 ## Four modes
 
 ### Mode: `full`

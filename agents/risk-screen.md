@@ -153,7 +153,7 @@ Descriptive: "SWS flags three distinct risks: insider-only-selling, high non-cas
 
 ### Step 4 — Return summary
 
-Return ≤150 words:
+Return ≤200 words:
 
 ```
 **Risk screen written.** SESSION_DIR/analysis/risk.md

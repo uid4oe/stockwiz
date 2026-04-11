@@ -223,7 +223,7 @@ If no kill switch has a computed margin (e.g. all are structural like "short flo
 
 ### How to pick the "biggest unknown"
 
-Read `thesis.md` § Unknowns. The list is already prioritized by the thesis-discipline skill (most material first). Take the first item, rewrite it as a single sentence if it's longer. Example: "Customer concentration of data-center revenue (top 4 hyperscalers) is not disclosed in current sources and materially affects the bear case."
+Read `thesis.md` § Unknowns. The list is already prioritized by the thesis-discipline agent (most material first). Take the first item, rewrite it as a single sentence if it's longer. Example: "Customer concentration of data-center revenue (top 4 hyperscalers) is not disclosed in current sources and materially affects the bear case."
 
 ## Below the fold — progressive disclosure
 

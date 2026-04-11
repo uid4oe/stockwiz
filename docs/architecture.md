@@ -21,14 +21,14 @@ stockwiz splits every operation into two roles:
 
 - **The librarian** (`deep-researcher` agent, source-extraction skill + reference files) captures data from public sources **verbatim, without interpretation**. It produces `raw/*.md` files that are the audit trail. Raw files are immutable once written — no downstream stage ever edits them. If numbers change, it's because a newer run fetched fresh data into a new session directory.
 
-- **The analyst** (four analysis skills + thesis-discipline + devils-advocate + report-writer) reads the librarian's output and interprets it. Every analyst component writes its own file under `analysis/` (or `thesis.md`, `report.html`). The analyst may disagree with the raw data, frame it differently, or flag it — but the analyst never rewrites it.
+- **The analyst** (four analysis agents dispatched in parallel at Stage 2 — `fundamental-analysis`, `sentiment-synthesis`, `peer-comparison`, `risk-screen` — plus the `thesis-discipline` agent, the `devils-advocate` agent, and the `report-writer` agent) reads the librarian's output and interprets it. Every analyst component writes its own file under `analysis/` (or `thesis.md`, `report.html`). The analyst may disagree with the raw data, frame it differently, or flag it — but the analyst never rewrites it.
 
 The benefit: when a downstream output is questioned, you can always grep `raw/` to see what the source actually said. The audit trail is immutable and the interpretation layer is reversible.
 
 Violations to watch for:
 
 - Don't let deep-researcher editorialize ("this looks like a strong company"). It's a librarian.
-- Don't let analysis skills re-fetch from the web. They read from `raw/` only.
+- Don't let analysis agents re-fetch from the web. They read from `raw/` only (enforced by their tool lists — no WebFetch/WebSearch).
 - Don't let thesis-discipline modify raw data, only analysis outputs.
 - Don't let the report-writer invent numbers; if it can't find a citation in `raw/` or `analysis/`, the number doesn't appear in the report.
 
@@ -157,7 +157,7 @@ Only the **SEC EDGAR fetch** is fatal in the normal pipeline. The reasoning: SEC
 
 - **Any individual non-SEC source can fail** (Zacks Cloudflare, Yahoo 429, Reddit JSON-body 429, etc.) — deep-researcher logs the failure and continues to the next source. The analysis layer gracefully degrades and flags the gap in the Unknowns section.
 - **Fewer than 3 total sources succeeding** is fatal — not enough data to build a credible thesis.
-- **An individual analysis skill failing** is non-fatal — the skill writes a stub, thesis-discipline falls back to reading raw files directly, and report-writer renders a thin section with a placeholder note.
+- **An individual analysis agent failing** is non-fatal — the agent writes a stub (or no file), the thesis-discipline agent falls back to reading raw files directly, and the report-writer agent renders a thin section with a placeholder note.
 - **devils-advocate failing** is non-fatal — Stage 5 is skipped, Stage 6 renders the adversarial appendix as a placeholder.
 - **report-writer compliance pass failing after 3 iterations** is fatal — we refuse to emit a non-compliant report rather than silently pass.
 
@@ -230,7 +230,7 @@ The rule set has three classes:
 
 No other stage runs the compliance pass. Other stages are expected to **pre-filter** their outputs (avoid generating banned language in the first place) to reduce compliance-pass churn, but this is a softer expectation than the report-writer's hard enforcement.
 
-The pre-filter guidance lives in `compliance-rules.md` under a "Pre-filter guidance for skill authors" section. Every analysis skill references that section rather than duplicating the banned list.
+The pre-filter guidance lives in `compliance-rules.md` under a "Pre-filter guidance for skill authors" section. Every analysis agent references that section rather than duplicating the banned list. (The section is named "skill authors" for historical reasons — the guidance applies to any work unit that writes prose destined for the HTML report, which post-0.4.0 means agents.)
 
 ## How to add a new source
 
@@ -239,10 +239,10 @@ The pre-filter guidance lives in `compliance-rules.md` under a "Pre-filter guida
 3. Add the source to the fetch plan in `agents/deep-researcher.md` Step 2 at the appropriate priority position. Update any per-source mechanics if the source needs special handling (cookies, cache, etc.).
 4. If the source needs a persistent cache, document the schema in `docs/session-workspace.md`.
 5. If the source produces a new raw file slug, add it to the filesystem contract in `docs/session-workspace.md`.
-6. Update the analysis skill(s) that should consume the new source. The source exists in `raw/` but analysis skills won't read it unless their Inputs section says so explicitly.
+6. Update the analysis agent(s) under `agents/` that should consume the new source. The source exists in `raw/` but analysis agents won't read it unless their Inputs section says so explicitly.
 7. Update the orchestrator's deep-researcher Task prompt in `commands/stockwiz.md` if the total source count changes.
 
-**Common trap**: adding a source to the reference files and index but forgetting to update the orchestrator prompt OR the analysis skills. The source gets fetched but nothing reads it. See the Phase 2.5 self-review for examples of this exact failure mode.
+**Common trap**: adding a source to the reference files and index but forgetting to update the orchestrator prompt OR the analysis agents. The source gets fetched but nothing reads it. See the Phase 2.5 self-review for examples of this exact failure mode.
 
 ## How to add a new analysis agent
 

@@ -59,7 +59,7 @@ Write the initial `$SESSION_DIR/meta.json`:
   "ticker": "<TICKER>",
   "mode": "full",
   "horizon": "<HORIZON>",
-  "commandVersion": "0.4.0",
+  "commandVersion": "0.4.1",
   "createdAt": "<ISO 8601 with offset>",
   "status": "started",
   "stages": [],
@@ -314,11 +314,11 @@ Use the `Task` tool to invoke the `report-writer` subagent. Pass:
 > SESSION_DIR: <absolute path>
 > TEMPLATE: deep-dive (v0.3 insights-first)
 >
-> This is a deep-dive run. The session has raw/ files for up to 10 sources (SEC EDGAR, Finviz, Stockanalysis, Macrotrends, Yahoo, Google Finance + Google News RSS, Simply Wall Street, Seeking Alpha, Zacks, Reddit), analysis/ files (fundamental, sentiment, peer-comp, risk, devils-advocate) from the four analysis skills and devils-advocate subagent, and a thesis.md (possibly with an Adjustments After Stress Test section from the reconcile step).
+> This is a deep-dive run. The session has raw/ files for up to 10 sources (SEC EDGAR, Finviz, Stockanalysis, Macrotrends, Yahoo, Google Finance + Google News RSS, Simply Wall Street, Seeking Alpha, Zacks, Reddit), analysis/ files (fundamental, sentiment, peer-comp, risk, devils-advocate) produced by the four analysis agents dispatched in parallel at Stage 2 plus the devils-advocate agent at Stage 4, and a thesis.md (possibly with an Adjustments After Stress Test section from the reconcile step).
 >
 > **Use the v0.3 insights-first template.** This means:
 >
-> 1. **First, run Step 5 of your SKILL.md — curate the TL;DR atoms** BEFORE composing HTML:
+> 1. **First, run Step 5 of your agent instructions — curate the TL;DR atoms** BEFORE composing HTML:
 >    - Key insight: ONE most striking observation picked from analysis/fundamental.md and analysis/sentiment.md using the heuristic list in deep-dive-template.md (anomalous quality metric / step-change growth / capital-structure surprise / margin inflection / historical outlier / SWS extreme)
 >    - Closest kill switch: the kill switch from thesis.md with the smallest margin of safety, with current/trigger/margin stats
 >    - Biggest unknown: the most material item from thesis.md § Unknowns, one sentence
@@ -328,7 +328,7 @@ Use the `Task` tool to invoke the `report-writer` subagent. Pass:
 >    - **Below the fold** (native <details>/<summary>, no JavaScript): Three Cases (full, open by default) → Kill Switches → Fundamentals → Sentiment → Peers → Risk → Assumption Ledger → Unknowns → Sources → Adversarial Pass
 >    - **Always visible at bottom**: Disclaimer footer, NOT inside a <details>
 >
-> 3. For each <details> section, produce a one-line abstract in the <summary> so readers can decide what to expand. Use the abstract formulas from Step 6.5 of your SKILL.md.
+> 3. For each <details> section, produce a one-line abstract in the <summary> so readers can decide what to expand. Use the abstract formulas from Step 6.5 of your agent instructions.
 >
 > 4. The compact TL;DR cases and the full Three Cases details section MUST use the SAME hash-shuffled order (FNV-1a hash of ticker mod 6).
 >
@@ -439,7 +439,7 @@ The following are explicitly non-fatal and must not call Step 13:
 
 - Any individual non-SEC source failing (Zacks Cloudflare, Yahoo rate limit, Reddit 429, SWS paywall, SA SSR gap) — deep-researcher marks the source `failed` and continues.
 - `lynx` not installed — deep-researcher falls back to raw-HTML Read for lynx-dependent sources.
-- Any individual analysis skill writing a stub (missing raw inputs) — downstream skills and report-writer handle stubs via thin fallbacks.
+- Any individual analysis agent writing a stub (missing raw inputs) — downstream agents and report-writer handle stubs via thin fallbacks.
 - devils-advocate subagent failing — Stage 5 (reconcile) is skipped, report-writer renders the Adversarial Appendix as a placeholder.
 - Cookie jar leaks in `/tmp/stockwiz-*` — cleanup bug, not a fatal condition.
 
@@ -455,7 +455,7 @@ The following are explicitly non-fatal and must not call Step 13:
 
 - **SEC company_tickers.json fetch fails on first run.** The cache doesn't exist yet. If the fetch fails with a 403 (UA issue) or network error, treat as fatal SEC failure and jump to Step 13 — no CIK lookup means no SEC at all.
 
-- **Analysis skill failure.** Any of the four analysis skills may write a stub file if its raw inputs are all failed. The thesis-discipline `full` mode handles this via its fallback mode (reads raw files directly). The report-writer renders a thin fallback for that section. Non-fatal at every stage.
+- **Analysis agent failure.** Any of the four analysis agents may write a stub file (or no file) if its raw inputs are all failed. The thesis-discipline agent's `full` mode handles this via its fallback mode (reads raw files directly). The report-writer agent renders a thin fallback for that section. Non-fatal at every stage.
 
 - **Devils-advocate failure.** If the Task call times out or the subagent returns an error, log it and skip the reconcile stage (Stage 5). The report-writer will render a placeholder for the Adversarial Appendix section noting the pass was skipped. Non-fatal.
 
@@ -469,7 +469,7 @@ The following are explicitly non-fatal and must not call Step 13:
 
 ## What success looks like
 
-The user runs `/stockwiz NVDA`. They see a todo list with seven stages. Stage 1 gathers 5–6 sources via deep-researcher. Stage 2 runs four analysis skills sequentially — fundamental extracts multi-year numbers and builds an assumption ledger, sentiment weighs SWS risks vs analyst distribution, peer-comp builds a comp table from SWS competitor snowflakes, risk-screen enumerates beta/drawdown/concentration/tail. Stage 3 synthesizes the thesis reading from the four analyses (not raw files directly). Stage 4 spawns a red-colored devils-advocate subagent in an isolated context; it reads only thesis.md, ranks the weakest claims, builds a coherent opposing narrative, and rewrites weak kill switches. Stage 5 appends an "Adjustments After Stress Test" section to thesis.md preserving the original claims verbatim. Stage 6 generates a 60–120KB HTML report with full Fundamentals, Sentiment, Peers, Risk, Assumption Ledger, and Adversarial Appendix sections. Stage 7 finalizes meta.json.
+The user runs `/stockwiz NVDA`. They see a todo list with seven stages. Stage 1 gathers 6–10 sources via the deep-researcher agent in ~20 minutes. Stage 2 dispatches **four analysis agents concurrently** in a single message — fundamental extracts multi-year numbers and builds an assumption ledger, sentiment weighs SWS risks vs analyst distribution and computes the publisher-distribution shape, peer-comparison builds a comp table from SWS competitor snowflakes, risk-screen enumerates beta/drawdown/cycle/concentration/tail — and the orchestrator waits for all four to return (~10 minutes, max of the four, not the sum). Stage 3 dispatches the thesis-discipline agent in `full` mode to synthesize the thesis from the four analysis files (falls back to raw files if any are missing). Stage 4 spawns the red-colored devils-advocate agent in an isolated context; it reads only thesis.md, ranks the weakest claims, builds a coherent opposing narrative, and rewrites weak kill switches. Stage 5 dispatches the thesis-discipline agent again in `reconcile` mode to append an "Adjustments After Stress Test" section to thesis.md while preserving the original claims verbatim. Stage 6 runs the report-writer agent which curates three TL;DR atoms (key insight, closest kill switch, biggest unknown) and composes a 60–150KB insights-first HTML report with collapsible `<details>` sections for the full analyses and adversarial appendix. Stage 7 finalizes meta.json. Total wall-clock ~45 minutes (down from ~78 minutes in v0.3.x) thanks to the Stage 2 parallelization and the isolated-context speedups in Stages 3 and 5.
 
 The user opens `report.html` and sees a clean research brief with three equal-weight columns, a full fundamentals section with multi-year sparklines, an insider-activity grid, a peer comp table, a drawdown profile, an assumption ledger you can interrogate row-by-row, a full-width kill-switches row calibrated with margin-of-safety numbers, a red-highlighted adversarial appendix with ranked weakest claims and kill-switch rewrites, and a disclaimer footer that can't be removed. They come back to the chat and ask "what did devils-advocate say about the margin thesis?" — the main context Greps `analysis/devils-advocate.md` and answers with citation, no re-fetch.
 

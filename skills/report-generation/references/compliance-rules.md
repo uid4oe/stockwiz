@@ -49,7 +49,7 @@ The `report-writer` agent runs this pass after composing the HTML string and bef
    e. Otherwise: apply the rewrite, preserving surrounding punctuation.
 4. After all rules have been applied, **re-scan** the HTML for any remaining banned phrases outside `<q>` tags.
 5. Loop (apply → re-scan) up to **3 times** total.
-6. If after 3 iterations any banned phrase still remains outside `<q>`, **ABORT** the report generation and return an error. This indicates the report content is systematically out of compliance and the issue needs to be addressed upstream (in the `thesis-discipline` skill or the analysis skills).
+6. If after 3 iterations any banned phrase still remains outside `<q>`, **ABORT** the report generation and return an error. This indicates the report content is systematically out of compliance and the issue needs to be addressed upstream (in the `thesis-discipline` agent or one of the four analysis agents).
 7. Log every rewrite applied and every stripped sentence to `meta.json.stages` under the `report-writer` stage as an `adjustments` array.
 
 ## What about quoted source material?
