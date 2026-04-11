@@ -2,6 +2,18 @@
 
 All notable changes to stockwiz are documented in this file.
 
+## [0.3.3] — 2026-04-11
+
+### Fix invalid plugin manifest schema
+
+0.3.2 shipped an invalid `plugin.json` that Claude Code refused to load with `"Plugin stockwiz has an invalid manifest file"`. Root cause: when adding author metadata I included npm-style fields (`homepage`, `repository`, and a `url` inside `author`) that are not part of the Claude Code plugin manifest schema. The accepted schema is strict: `name`, `version`, `description`, `author: {name, email}` — nothing else.
+
+**Fix.** Reverted `plugin.json` to the minimal valid shape. Author name and email are preserved. The repo URL moved into the `description` field as plain text so it's still surfaced in plugin listings.
+
+Verified against five reference plugin.json files under `~/.claude/plugins/` (frontend-design, claude-opus-4-5-migration, feature-dev, learning-output-style, code-review) — all use the same four-field shape.
+
+`commandVersion` bumped to 0.3.3 in the orchestrator's meta.json skeleton.
+
 ## [0.3.2] — 2026-04-11
 
 ### Architectural cleanup from self-review — no new features
