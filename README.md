@@ -40,7 +40,7 @@ Open the resulting `~/.claude/stockwiz/sessions/NVDA-*/report.html` in any brows
 | `/stockwiz-setup` | One-time onboarding; creates data dirs, shows disclaimer |
 | `/stockwiz <ticker> [--horizon=long\|swing]` | Full deep-dive pipeline, produces HTML report |
 
-That's the current command surface. After setup, run `/stockwiz NVDA` (or any US ticker) and stockwiz will fetch 10 sources, dispatch four analysis agents in parallel (fundamental, sentiment, peer-comparison, risk), synthesize a disciplined bull/base/bear thesis, run an isolated adversarial stress test via the devils-advocate agent, reconcile the findings, and emit a self-contained HTML research brief into `~/.claude/stockwiz/sessions/<TICKER>-<timestamp>/report.html`. You can then ask follow-up questions in the same chat — stockwiz will answer from the durable session workspace without re-fetching.
+That's the current command surface. After setup, run `/stockwiz NVDA` (or any US ticker) and stockwiz will fetch 12 sources, dispatch four analysis agents in parallel (fundamental, sentiment, peer-comparison, risk), synthesize a disciplined bull/base/bear thesis, run an isolated adversarial stress test via the devils-advocate agent, reconcile the findings, and emit a self-contained HTML research brief into `~/.claude/stockwiz/sessions/<TICKER>-<timestamp>/report.html`. You can then ask follow-up questions in the same chat — stockwiz will answer from the durable session workspace without re-fetching.
 
 ## Roadmap
 

@@ -1,7 +1,7 @@
 ---
 name: source-extraction
 description: This skill should be used when fetching raw equity data from public web sources. Provides URL patterns, per-source extraction targets, access methods (WebFetch vs Bash+curl), fallback behavior, rate-limiting guidance, and failure-mode detection for the stockwiz source set. Do not fetch equity data without consulting this skill first.
-version: 0.3.0
+version: 0.4.0
 ---
 
 # source-extraction
@@ -38,11 +38,11 @@ The rule: **use whichever the source's reference file prescribes.** Do not secon
 
 A full deep-dive (MODE=full) should fit within this envelope:
 - **≤35 total fetches** (WebFetch + curl, combined hard cap — abort with error if exceeded)
-- **≤3 total WebSearch calls** (used only to resolve canonical URLs for Simply Wall St, Macrotrends, and optional Google News company-name fallback)
+- **≤4 total WebSearch calls** (used to resolve canonical URLs for Simply Wall St + Macrotrends, plus 1 X.com institutional-commentary search; optional Google News company-name fallback shares this budget)
 - **90–150 seconds** of wall-clock time
 - **1500ms** minimum delay between fetches
 
-The budget is wide enough to cover 10 sources and some sources use multiple pages (SEC 6-7 API calls, Macrotrends 4 pages, Stockanalysis 3 pages).
+The budget is wide enough to cover 12 sources and some sources use multiple pages (SEC 6-7 API calls, Macrotrends 4 pages, Stockanalysis 3 pages).
 
 **Per-source call budget (happy path):**
 | Source | Calls |
@@ -57,7 +57,9 @@ The budget is wide enough to cover 10 sources and some sources use multiple page
 | Seeking Alpha | 1-2 |
 | Zacks | 1 (best-effort) |
 | Reddit | 3 (one per sub) |
-| **Total happy path** | **~28-32 fetches + 2 WebSearch** |
+| Barchart insider trades | 1 WebFetch |
+| X.com institutional commentary | 1 WebSearch |
+| **Total happy path** | **~29-33 fetches + 3 WebSearch** |
 
 A reduced mode (MODE=thesis, MODE=compare, MODE=revisit, MODE=bear) uses a smaller source subset — see deep-researcher.md Step 2 for which modes include which sources.
 
@@ -65,7 +67,7 @@ Degraded run: if **fewer than 3 sources succeed** in the first **10 attempts**, 
 
 ## Source index
 
-The source set currently wires **10 sources**. TradingView remains deferred because it needs a headless browser (JS-rendered). FRED stays on the roadmap it's only called by the macro-context skill, not deep-researcher.
+The source set currently wires **12 sources**. TradingView remains deferred because it needs a headless browser (JS-rendered). FRED stays on the roadmap it's only called by the macro-context skill, not deep-researcher.
 
 | # | Source | Reference file | Phase | Tool | Keyless? |
 |---|---|---|---|---|---|
@@ -81,6 +83,8 @@ The source set currently wires **10 sources**. TradingView remains deferred beca
 | 10 | Macrotrends | [`references/macrotrends.md`](references/macrotrends.md) | | **curl** + lynx | yes |
 | 11 | FRED | `references/fred.md` | (roadmap) | curl | optional key |
 | 12 | Reddit | [`references/reddit.md`](references/reddit.md) | | **curl** + .json endpoints | yes (rate-limited) |
+| 13 | Barchart insider trades | [`references/barchart.md`](references/barchart.md) | best-effort | **WebFetch** | yes |
+| 14 | X.com institutional commentary | [`references/x-com.md`](references/x-com.md) | best-effort, whitelist-gated | **WebSearch** (`site:x.com`) | yes |
 
 ## Fetch order for MODE=full
 
@@ -96,6 +100,8 @@ Fetch in this order. Earlier sources are more reliable and give you enough to fi
 8. **Seeking Alpha** (curl + lynx) — Quant Rating + Factor Grades (public sections only)
 9. **Zacks** (curl + lynx) — Zacks Rank + Style Scores, **best-effort, fails fast on Cloudflare**
 10. **Reddit** (curl + .json) — retail sentiment as contrarian signal, weight 0.2
+11. **Barchart insider trades** (WebFetch) — 3/6/12-month buy/sell directional time series, **best-effort**
+12. **X.com institutional commentary** (WebSearch + whitelist gate) — verified-handle wires/journalists/sell-side commentary, **best-effort, whitelist-gated**
 
 **FRED is never fetched by `deep-researcher`.** It is only called by the `macro-context` skill when a specific series is needed to contextualize a thesis.
 
@@ -137,8 +143,14 @@ Finviz → Yahoo API → Stockanalysis
 **Financial statements (revenue, FCF, debt):**
 SEC EDGAR XBRL facts (authoritative) → Stockanalysis financials → Yahoo API history modules
 
-**Insider & institutional ownership:**
+**Insider & institutional ownership (static % held):**
 Finviz → Yahoo API defaultKeyStatistics (heldPercentInsiders/Institutions)
+
+**Insider directional time series (3/6/12-month buy vs sell):**
+Barchart insider trades (primary) → Finviz `insider_trans` summary (fallback — single 3m % only, no shape)
+
+**Institutional commentary (wires / sell-side / journalists):**
+X.com whitelist (primary, verified handles only) → Google News RSS wire-service headlines (fallback)
 
 **Short interest:**
 Finviz → Yahoo API
@@ -210,6 +222,8 @@ This lets later consumers (analyses, report-writer) grep for `status: ok` in fro
 | Macrotrends | `macrotrends.md` |
 | FRED (per series) | `fred-{series-id}.md` |
 | Reddit (per sub) | `reddit-{sub}.md` |
+| Barchart insider trades | `barchart-insider-trades.md` |
+| X.com institutional commentary | `x-com-commentary.md` |
 
 On revisit, prefix with `revisit-YYYYMMDD-`:
 - `revisit-20260418-yahoo-fundamentals.md`

@@ -2,6 +2,26 @@
 
 All notable changes to stockwiz are documented in this file.
 
+## [0.4.2] — 2026-05-01
+
+### Two new Stage 1 sources — Barchart insider directional + X.com whitelisted institutional commentary
+
+Absorbed from a now-retired personal screener skill (`stock-leads`). Both feed into the existing `sentiment-synthesis` agent through the standard raw-file convention; no architectural change.
+
+**New sources:**
+
+- **Barchart insider trades** ([`skills/source-extraction/references/barchart.md`](skills/source-extraction/references/barchart.md)) — single-page WebFetch returning a 12-field JSON of buy/sell counts and shares across trailing 3-, 6-, and 12-month windows. Sentiment-synthesis derives `insider_signal_3m = (buy_shares_3m − sell_shares_3m) / (buy_shares_3m + sell_shares_3m + 1)` clamped to [-1, +1], skipping the signal for sectors {Real Estate, Financial Services} or option-exercise-dominated tickers (option grants are compensation noise, not directional). Fills a gap Finviz left open: Finviz only summarizes a single 3-month % delta, with no shape or longer windows. Best-effort; sentiment-synthesis falls back to the Finviz `insider_trans` summary alone on Barchart failure.
+
+- **X.com institutional commentary** ([`skills/source-extraction/references/x-com.md`](skills/source-extraction/references/x-com.md)) — single `WebSearch site:x.com "{ticker}"` per ticker, gated by a strict 5-tier whitelist of ~30 verified handles (financial wires Tier 1, recognized journalists Tier 2, sell-side firms Tier 3, analyst-note aggregators Tier 4, issuer official accounts Tier 5). Up to 5 surviving snippets are written to `raw/x-com-commentary.md` with `{handle, tier, snippet ≤240 chars, url}`. Anonymous handles, WSB-orbit accounts, cashtag-spam accounts, and "guru" accounts are discarded without reading. Empty `quotes: []` is `status: ok`, not failure — many low-coverage tickers will return zero whitelist hits, and that's a normal outcome. Whitelist carries a `<!-- review-by 2026-11-01 -->` comment because handles deprecate.
+
+**Sentiment-synthesis weighting rubric** (`agents/sentiment-synthesis.md`) — extended with Barchart at 0.85 (hard share-count signal across three windows) and X.com tier-derived weights (Tier 1 wires 0.85, Tier 2 journalists 0.7, Tier 3 sell-side 0.6, Tier 4 aggregators 0.5, Tier 5 issuer 0.4 sentiment-only). The Insider Activity output section now shows the 3/6/12-month buy/sell breakdown and the computed scalar (or an explicit "skipped" reason). A new Institutional Commentary (X.com) subsection lives under Recency-Weighted News. The "Unknowns" line about X/Twitter being unscraped is gone.
+
+**Updated source counts** — "10 total" → "12 total" across `skills/source-extraction/SKILL.md`, `agents/deep-researcher.md`, `commands/stockwiz.md`. Per-source call budget: Barchart 1 WebFetch, X.com 1 WebSearch — totals now ~29-33 fetches + 3 WebSearch (was ~28-32 + 2).
+
+**Why absorb instead of keep both:**
+
+The retired `stock-leads` skill was a multi-ticker *screener* that surfaced 10–20 candidates near 52-week lows; `stockwiz` is a single-ticker *deep-dive*. They have different jobs but both pulled from public web sources, and stock-leads's two genuinely-novel enrichments (directional insider time series, whitelisted institutional X.com commentary) improve any single-ticker analysis. Folding them into stockwiz's existing sentiment pipeline adds value without doubling the plugin's surface area; the screening logic (Trefis seed discovery, proximity filter, quality gate, run-to-run diffs) was deliberately not migrated because it has no role in single-ticker work.
+
 ## [0.4.1] — 2026-04-11
 
 ### Language migration finish — completes the 0.4.0 skill→agent refactor

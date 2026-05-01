@@ -424,7 +424,7 @@ The Adversarial Pass section uses `class="stockwiz-adversarial"` on the `<div cl
 
 ## Report size targets
 
-- **full (10 sources, all analyses, adversarial pass)**: 60–150KB of HTML, inclusive of inline CSS and SVG sparklines
+- **full (12 sources, all analyses, adversarial pass)**: 60–150KB of HTML, inclusive of inline CSS and SVG sparklines
 - **raw-only fallback (analyses missing)**: 30–50KB with thin sections
 - **Hard max**: 500KB — anything larger indicates binary content leaking in
 

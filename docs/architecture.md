@@ -55,9 +55,10 @@ Violations to watch for:
                                  ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │  STAGE 1 — deep-researcher (Task subagent, isolated context)         │
-│  Fetches 10 sources in priority order (SEC first, then Finviz,       │
+│  Fetches 12 sources in priority order (SEC first, then Finviz,       │
 │  Stockanalysis, Macrotrends, Yahoo, Google News, SWS, SA, Zacks,     │
-│  Reddit). Writes raw/*.md files, updates meta.json.sources[].        │
+│  Reddit, Barchart insider, X.com). Writes raw/*.md files, updates    │
+│  meta.json.sources[].                                                │
 │  Returns ≤300 word summary (no raw content).                         │
 └────────────────────────────────┬─────────────────────────────────────┘
                                  │
@@ -186,7 +187,7 @@ stockwiz has two ways to package a work unit:
 
 | Component | Type | Primary reason |
 |---|---|---|
-| `deep-researcher` | agent | Context pollution — reads raw HTML, JSON, lynx dumps across 10 sources |
+| `deep-researcher` | agent | Context pollution — reads raw HTML, JSON, lynx dumps across 12 sources |
 | `fundamental-analysis` | agent | Context pollution + dispatched in parallel with three siblings at Stage 2 |
 | `sentiment-synthesis` | agent | Context pollution + dispatched in parallel |
 | `peer-comparison` | agent | Dispatched in parallel at Stage 2 (inputs are small, but parallel execution is the win) |

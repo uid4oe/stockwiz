@@ -32,7 +32,7 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/source-extraction/SKILL.md` to understand rat
 
 ### Step 2 — Build the fetch plan
 
-**MODE=full — current sources (10 total):**
+**MODE=full — current sources (12 total):**
 
 Fetch in this order. Each source uses the tool prescribed in its reference file — do not substitute WebFetch for curl or vice versa.
 
@@ -48,6 +48,8 @@ Fetch in this order. Each source uses the tool prescribed in its reference file 
 | 8 | **Seeking Alpha** | **Bash + curl + lynx** | `references/seeking-alpha.md` |
 | 9 | **Zacks** | **Bash + curl + lynx** (best-effort, fail fast on Cloudflare) | `references/zacks.md` |
 | 10 | **Reddit** | **Bash + curl** (.json endpoints) | `references/reddit.md` |
+| 11 | **Barchart insider trades** | **WebFetch** (best-effort) | `references/barchart.md` |
+| 12 | **X.com institutional commentary** | **WebSearch** (`site:x.com`, whitelist-gated, best-effort) | `references/x-com.md` |
 
 SEC is the only source whose failure is fatal — the orchestrator aborts the deep-dive if it cannot reach SEC. **All other sources can individually fail without blocking the run.** Yahoo Finance and Zacks are both **best-effort** — observed success rate is near-zero in recorded sessions (Yahoo always rate-limits, Zacks always Cloudflare-challenges). Accept them when they work, move on silently when they don't. Do NOT retry on their first failure.
 
@@ -128,6 +130,10 @@ For each source in the plan, in order. The fetch mechanics differ by source — 
 - **Zacks (curl + lynx — BEST EFFORT):** 1 curl call per `references/zacks.md`. **Fail fast on Cloudflare challenge.** After the fetch, grep the response for `challenges.cloudflare.com`, `Attention Required`, `Checking your browser` — if any match, mark failed with reason `cloudflare-challenge` and move on, **zero retries**. Do NOT try header variations — they usually also fail. Zacks is best-effort; if it works, you get Zacks Rank + Style Scores. If not, no loss.
 
 - **Reddit (curl + .json endpoints):** 3 curl calls (one per subreddit: r/stocks, r/wallstreetbets, r/investing). Use `-A "stockwiz-research/0.3 by anonymous (contact: noreply@stockwiz.local)"` — Reddit's TOS requires a descriptive User-Agent. Parse JSON with jq or python3. **Capture titles/scores/comments/date/permalink only — never usernames, never post bodies.** Rate-limit tolerant: on 429, skip remaining subs but don't hard-fail. Aggregate metrics: total posts matching ticker in last 30 days per sub, activity level (quiet/normal/elevated/heavy).
+
+- **Barchart insider trades (WebFetch):** 1 WebFetch call per `references/barchart.md`. Single-page extraction of the 12-field aggregated buy/sell summary across 3/6/12-month windows, returned as JSON. Best-effort — on 403/Cloudflare, mark failed and move on; no retry. The directional `insider_signal_3m` is *not* computed at fetch time — sentiment-synthesis derives it from the raw fields.
+
+- **X.com institutional commentary (WebSearch):** 1 WebSearch call per `references/x-com.md` with a `site:x.com "{TICKER}" {company_short}` query. **The whitelist gate in the reference file is mandatory** — discard any result whose handle is not in one of the 5 tiers (financial wires, recognized journalists, sell-side firms, analyst-note aggregators, issuer official accounts). Up to 5 surviving snippets are written to the raw file with handle, tier, snippet (≤240 chars), and url. **Empty result (`quotes: []`) is `status: ok`, not `status: failed`** — many low-attention tickers will return zero whitelist hits, and that's a normal outcome.
 
 **Detecting SEC EDGAR fatality:**
 

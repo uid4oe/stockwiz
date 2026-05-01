@@ -59,7 +59,7 @@ Write the initial `$SESSION_DIR/meta.json`:
   "ticker": "<TICKER>",
   "mode": "full",
   "horizon": "<HORIZON>",
-  "commandVersion": "0.4.1",
+  "commandVersion": "0.4.2",
   "createdAt": "<ISO 8601 with offset>",
   "status": "started",
   "stages": [],
@@ -101,7 +101,7 @@ Use the `Task` tool to invoke the `deep-researcher` subagent. Pass it this promp
 > SESSION_DIR: <absolute path to SESSION_DIR>
 > MODE: full
 >
-> This is a deep-dive run. Fetch the 10 current sources per the source-extraction skill, in this order:
+> This is a deep-dive run. Fetch the 12 current sources per the source-extraction skill, in this order:
 >   1. SEC EDGAR (curl + SEC JSON APIs) — fatal if this fails
 >   2. Finviz (WebFetch)
 >   3. Stockanalysis.com (curl + lynx) — 5Y financials
@@ -112,12 +112,14 @@ Use the `Task` tool to invoke the `deep-researcher` subagent. Pass it this promp
 >   8. Seeking Alpha (curl + lynx) — public sections only
 >   9. Zacks (curl + lynx) — best-effort, fail fast on Cloudflare
 >   10. Reddit (curl + .json endpoints for r/stocks, r/wallstreetbets, r/investing)
+>   11. Barchart insider trades (WebFetch) — best-effort; 3/6/12-month buy/sell directional time series
+>   12. X.com institutional commentary (WebSearch site:x.com, whitelist-gated) — best-effort; verified handles only
 >
-> Each source's reference file under skills/source-extraction/references/ prescribes the exact tool, URLs, extraction targets, and failure mode detection — follow them. Do NOT substitute WebFetch for curl on gated sources (SEC, Yahoo, Stockanalysis, Macrotrends, Google, SWS, SA, Zacks, Reddit). Finviz is the only WebFetch source.
+> Each source's reference file under skills/source-extraction/references/ prescribes the exact tool, URLs, extraction targets, and failure mode detection — follow them. Do NOT substitute WebFetch for curl on gated sources (SEC, Yahoo, Stockanalysis, Macrotrends, Google, SWS, SA, Zacks, Reddit). Finviz and Barchart are WebFetch sources; X.com is the only WebSearch-only source.
 >
-> SEC EDGAR is the only fatal source. If SEC fails, stop fetching and set meta.json.status to "failed". All other source failures (Zacks Cloudflare, Yahoo rate limit, Reddit 429, etc.) are non-fatal — continue to the next source. Zacks and Reddit are explicitly best-effort; do not retry challenges.
+> SEC EDGAR is the only fatal source. If SEC fails, stop fetching and set meta.json.status to "failed". All other source failures (Zacks Cloudflare, Yahoo rate limit, Reddit 429, Barchart 403, etc.) are non-fatal — continue to the next source. Zacks, Reddit, Barchart, and X.com are explicitly best-effort; do not retry challenges. For X.com, an empty whitelist-hit set (`quotes: []`) is `status: ok`, not failure.
 >
-> Write each fetched source to SESSION_DIR/raw/ per the file output convention and update SESSION_DIR/meta.json.sources after each fetch. Use the slug conventions from source-extraction/SKILL.md (sec-edgar-10k.md, finviz-snapshot.md, stockanalysis.md, macrotrends.md, yahoo-fundamentals.md, google-finance.md, simply-wall-street.md, seeking-alpha.md, zacks-snapshot.md, reddit.md).
+> Write each fetched source to SESSION_DIR/raw/ per the file output convention and update SESSION_DIR/meta.json.sources after each fetch. Use the slug conventions from source-extraction/SKILL.md (sec-edgar-10k.md, finviz-snapshot.md, stockanalysis.md, macrotrends.md, yahoo-fundamentals.md, google-finance.md, simply-wall-street.md, seeking-alpha.md, zacks-snapshot.md, reddit.md, barchart-insider-trades.md, x-com-commentary.md).
 >
 > Return a compact summary (≤300 words) with succeeded sources, failed sources + reasons, absolute file paths, and any cross-source sanity flags. Do NOT include raw content in your return.
 
@@ -314,7 +316,7 @@ Use the `Task` tool to invoke the `report-writer` subagent. Pass:
 > SESSION_DIR: <absolute path>
 > TEMPLATE: deep-dive (v0.3 insights-first)
 >
-> This is a deep-dive run. The session has raw/ files for up to 10 sources (SEC EDGAR, Finviz, Stockanalysis, Macrotrends, Yahoo, Google Finance + Google News RSS, Simply Wall Street, Seeking Alpha, Zacks, Reddit), analysis/ files (fundamental, sentiment, peer-comp, risk, devils-advocate) produced by the four analysis agents dispatched in parallel at Stage 2 plus the devils-advocate agent at Stage 4, and a thesis.md (possibly with an Adjustments After Stress Test section from the reconcile step).
+> This is a deep-dive run. The session has raw/ files for up to 12 sources (SEC EDGAR, Finviz, Stockanalysis, Macrotrends, Yahoo, Google Finance + Google News RSS, Simply Wall Street, Seeking Alpha, Zacks, Reddit, Barchart insider trades, X.com institutional commentary), analysis/ files (fundamental, sentiment, peer-comp, risk, devils-advocate) produced by the four analysis agents dispatched in parallel at Stage 2 plus the devils-advocate agent at Stage 4, and a thesis.md (possibly with an Adjustments After Stress Test section from the reconcile step).
 >
 > **Use the v0.3 insights-first template.** This means:
 >
@@ -469,7 +471,7 @@ The following are explicitly non-fatal and must not call Step 13:
 
 ## What success looks like
 
-The user runs `/stockwiz NVDA`. They see a todo list with seven stages. Stage 1 gathers 6–10 sources via the deep-researcher agent in ~20 minutes. Stage 2 dispatches **four analysis agents concurrently** in a single message — fundamental extracts multi-year numbers and builds an assumption ledger, sentiment weighs SWS risks vs analyst distribution and computes the publisher-distribution shape, peer-comparison builds a comp table from SWS competitor snowflakes, risk-screen enumerates beta/drawdown/cycle/concentration/tail — and the orchestrator waits for all four to return (~10 minutes, max of the four, not the sum). Stage 3 dispatches the thesis-discipline agent in `full` mode to synthesize the thesis from the four analysis files (falls back to raw files if any are missing). Stage 4 spawns the red-colored devils-advocate agent in an isolated context; it reads only thesis.md, ranks the weakest claims, builds a coherent opposing narrative, and rewrites weak kill switches. Stage 5 dispatches the thesis-discipline agent again in `reconcile` mode to append an "Adjustments After Stress Test" section to thesis.md while preserving the original claims verbatim. Stage 6 runs the report-writer agent which curates three TL;DR atoms (key insight, closest kill switch, biggest unknown) and composes a 60–150KB insights-first HTML report with collapsible `<details>` sections for the full analyses and adversarial appendix. Stage 7 finalizes meta.json. Total wall-clock ~45 minutes (down from ~78 minutes in v0.3.x) thanks to the Stage 2 parallelization and the isolated-context speedups in Stages 3 and 5.
+The user runs `/stockwiz NVDA`. They see a todo list with seven stages. Stage 1 gathers 6–12 sources via the deep-researcher agent in ~20 minutes. Stage 2 dispatches **four analysis agents concurrently** in a single message — fundamental extracts multi-year numbers and builds an assumption ledger, sentiment weighs SWS risks vs analyst distribution and computes the publisher-distribution shape, peer-comparison builds a comp table from SWS competitor snowflakes, risk-screen enumerates beta/drawdown/cycle/concentration/tail — and the orchestrator waits for all four to return (~10 minutes, max of the four, not the sum). Stage 3 dispatches the thesis-discipline agent in `full` mode to synthesize the thesis from the four analysis files (falls back to raw files if any are missing). Stage 4 spawns the red-colored devils-advocate agent in an isolated context; it reads only thesis.md, ranks the weakest claims, builds a coherent opposing narrative, and rewrites weak kill switches. Stage 5 dispatches the thesis-discipline agent again in `reconcile` mode to append an "Adjustments After Stress Test" section to thesis.md while preserving the original claims verbatim. Stage 6 runs the report-writer agent which curates three TL;DR atoms (key insight, closest kill switch, biggest unknown) and composes a 60–150KB insights-first HTML report with collapsible `<details>` sections for the full analyses and adversarial appendix. Stage 7 finalizes meta.json. Total wall-clock ~45 minutes (down from ~78 minutes in v0.3.x) thanks to the Stage 2 parallelization and the isolated-context speedups in Stages 3 and 5.
 
 The user opens `report.html` and sees a clean research brief with three equal-weight columns, a full fundamentals section with multi-year sparklines, an insider-activity grid, a peer comp table, a drawdown profile, an assumption ledger you can interrogate row-by-row, a full-width kill-switches row calibrated with margin-of-safety numbers, a red-highlighted adversarial appendix with ranked weakest claims and kill-switch rewrites, and a disclaimer footer that can't be removed. They come back to the chat and ask "what did devils-advocate say about the margin thesis?" — the main context Greps `analysis/devils-advocate.md` and answers with citation, no re-fetch.
 
