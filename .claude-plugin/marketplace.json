@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "stockwiz",
+  "description": "Single-plugin marketplace for stockwiz — deep-dive US equity research assistant",
+  "owner": {
+    "name": "uid4oe",
+    "email": "oggy@uid4oe.dev"
+  },
+  "plugins": [
+    {
+      "name": "stockwiz",
+      "description": "Deep-dive US equity research assistant with adversarial bull/bear/base theses, peer comparison, and self-contained HTML artifacts.",
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/uid4oe/stockwiz"
+    }
+  ]
+}
