@@ -6,9 +6,11 @@ allowed-tools: Bash, Read, Write, Glob, Grep, Task, WebFetch, WebSearch, TodoWri
 
 # /stockwiz
 
-You are orchestrating a full equity deep-dive. This command coordinates subagents and skills to produce a complete research session and a self-contained HTML artifact.
+You are orchestrating a full equity deep-dive. This command coordinates subagents to produce a complete research session and a self-contained HTML artifact.
 
 The user typed something like `/stockwiz NVDA` or `/stockwiz NVDA --horizon=swing`. Parse the argument, validate, run the pipeline, and return a workspace pointer plus short summary so follow-up questions can be answered from the session workspace.
+
+Every non-trivial unit of work is a subagent dispatched via the `Task` tool — no Skills are loaded into your main context during a deep-dive. Stage 1 dispatches **four fetch shards concurrently**; Stage 2 dispatches **four analysis agents concurrently**; Stages 3–6 dispatch one subagent each, sequentially, because each has a data dependency on the prior stage's output. See `docs/architecture.md` for the full pipeline rationale.
 
 ## Step 1 — Parse arguments
 
@@ -59,7 +61,7 @@ Write the initial `$SESSION_DIR/meta.json`:
   "ticker": "<TICKER>",
   "mode": "full",
   "horizon": "<HORIZON>",
-  "commandVersion": "0.4.2",
+  "commandVersion": "0.5.0",
   "createdAt": "<ISO 8601 with offset>",
   "status": "started",
   "stages": [],
@@ -72,12 +74,24 @@ Write the initial `$SESSION_DIR/meta.json`:
 
 Use the local timezone offset in `createdAt` — e.g. `2026-04-11T14:32:00-07:00`. Use `date -Iseconds` (GNU) or `date "+%Y-%m-%dT%H:%M:%S%z"` (BSD/macOS) to generate it.
 
+## Step 4.5 — Pre-flight: prerequisites and ticker→CIK resolution
+
+Run these checks in your own context via `Bash` **before dispatching any subagent** — they are cheap, and each failure here aborts the run before any fetch budget is spent.
+
+1. **curl** — `which curl`. Missing → fatal, reason `curl-not-installed`.
+2. **JSON parser** — `which jq || which python3`. Neither → fatal, reason `json-parser-missing`.
+3. **lynx** — `which lynx`. Missing is NOT fatal; record `LYNX=missing` and pass it to the fetch shards (lynx-dependent sources fall back to raw-HTML Read).
+4. **SEC tickers cache** — check `~/.claude/stockwiz/cache/company_tickers.json` exists and is less than 30 days old. If not, fetch it (one curl call, per `skills/source-extraction/references/sec-edgar.md` Step 1 — descriptive User-Agent required). If this fetch fails → fatal, reason `sec-unreachable`.
+5. **Resolve TICKER → CIK** — look up the ticker in the cache with `jq` or `python3` (see the sec-edgar reference for the snippet). No match → fatal, reason `ticker-not-found-at-sec` ("No SEC filings found for <TICKER>. Verify it is a US-listed equity."). On match, zero-pad to 10 digits: `CIK_PADDED`.
+
+On any fatal condition, jump to Step 13.
+
 ## Step 5 — Stage the todo list
 
 Use `TodoWrite` to create the pipeline stages. This gives the user visibility into progress:
 
 ```
-1. Gather data from public sources (deep-researcher agent)
+1. Fetch sources via four fetch shards IN PARALLEL (deep-researcher agent ×4)
 2. Run four analysis agents IN PARALLEL (fundamental, sentiment, peer-comp, risk)
 3. Synthesize thesis (thesis-discipline agent, full mode)
 4. Adversarial stress test (devils-advocate agent)
@@ -86,67 +100,69 @@ Use `TodoWrite` to create the pipeline stages. This gives the user visibility in
 7. Finalize session metadata
 ```
 
-**v0.4.0 architectural note.** Every non-trivial unit of work in the pipeline is now a subagent dispatched via the `Task` tool — no Skills are loaded into the orchestrator's main context during a deep-dive. Stage 2's four analysis agents run **concurrently** (dispatched in a single message with four Task calls). Stages 1, 3, 4, 5, 6 dispatch one subagent each, sequentially, because each has a data dependency on the prior stage's output. `thesis-discipline` is invoked twice — once in `full` mode (Stage 3) to synthesize, once in `reconcile` mode (Stage 5) to merge devils-advocate feedback — each invocation is an independent Task with an isolated context.
-
 Mark stage 1 as in_progress.
 
-## Step 6 — Stage 1: Delegate to deep-researcher
+## Step 6 — Stage 1: Dispatch four fetch shards IN PARALLEL
 
-Use the `Task` tool to invoke the `deep-researcher` subagent. Pass it this prompt:
+The 12 sources are split into four shards with **disjoint origins**, so the per-origin 1500ms politeness delay is preserved inside each shard while the shards run concurrently. Wall-clock for Stage 1 is `max(shard A..D)` instead of the sum.
 
-> Fetch equity research data for a stockwiz deep-dive.
+**Dispatch pattern.** Issue **a single message with four `Task` tool calls**, each invoking the `deep-researcher` agent. Shards write disjoint `raw/` files and never touch `meta.json` — you merge their results after all four return.
+
+Common preamble for every shard prompt:
+
+> Fetch one shard of equity research data for a stockwiz deep-dive.
 >
 > TICKER: <TICKER>
 > HORIZON: <HORIZON>
-> SESSION_DIR: <absolute path to SESSION_DIR>
-> MODE: full
+> SESSION_DIR: <absolute path>
+> LYNX: <available|missing>
 >
-> This is a deep-dive run. Fetch the 12 current sources per the source-extraction skill, in this order:
->   1. SEC EDGAR (curl + SEC JSON APIs) — fatal if this fails
->   2. Finviz (WebFetch)
->   3. Stockanalysis.com (curl + lynx) — 5Y financials
->   4. Macrotrends (WebSearch + curl + lynx) — 10-20Y deep cycle history
->   5. Yahoo Finance (curl + quoteSummary JSON API)
->   6. Google Finance + Google News RSS (curl + RSS + lynx) — news layer
->   7. Simply Wall Street (WebSearch + curl + lynx)
->   8. Seeking Alpha (curl + lynx) — public sections only
->   9. Zacks (curl + lynx) — best-effort, fail fast on Cloudflare
->   10. Reddit (curl + .json endpoints for r/stocks, r/wallstreetbets, r/investing)
->   11. Barchart insider trades (WebFetch) — best-effort; 3/6/12-month buy/sell directional time series
->   12. X.com institutional commentary (WebSearch site:x.com, whitelist-gated) — best-effort; verified handles only
->
-> Each source's reference file under skills/source-extraction/references/ prescribes the exact tool, URLs, extraction targets, and failure mode detection — follow them. Do NOT substitute WebFetch for curl on gated sources (SEC, Yahoo, Stockanalysis, Macrotrends, Google, SWS, SA, Zacks, Reddit). Finviz and Barchart are WebFetch sources; X.com is the only WebSearch-only source.
->
-> SEC EDGAR is the only fatal source. If SEC fails, stop fetching and set meta.json.status to "failed". All other source failures (Zacks Cloudflare, Yahoo rate limit, Reddit 429, Barchart 403, etc.) are non-fatal — continue to the next source. Zacks, Reddit, Barchart, and X.com are explicitly best-effort; do not retry challenges. For X.com, an empty whitelist-hit set (`quotes: []`) is `status: ok`, not failure.
->
-> Write each fetched source to SESSION_DIR/raw/ per the file output convention and update SESSION_DIR/meta.json.sources after each fetch. Use the slug conventions from source-extraction/SKILL.md (sec-edgar-10k.md, finviz-snapshot.md, stockanalysis.md, macrotrends.md, yahoo-fundamentals.md, google-finance.md, simply-wall-street.md, seeking-alpha.md, zacks-snapshot.md, reddit.md, barchart-insider-trades.md, x-com-commentary.md).
->
-> Return a compact summary (≤300 words) with succeeded sources, failed sources + reasons, absolute file paths, and any cross-source sanity flags. Do NOT include raw content in your return.
+> Fetch ONLY the sources listed below, in order, per their reference files under `skills/source-extraction/references/`. Write each source to SESSION_DIR/raw/ per the file output convention and slugs in source-extraction/SKILL.md. Do NOT touch meta.json — the orchestrator merges shard results. Return your compact shard summary (per-source status lines with fetched_at, key facts, notes) per your agent spec. Do NOT include raw content in your return.
 
-Wait for the subagent to return. Read its summary.
+Per-shard specifics:
 
-**After deep-researcher returns:**
+1. **Shard A — ground truth + snapshot.** `SHARD: A`, `CIK_PADDED: <value>` (already resolved — skip ticker→CIK resolution).
+   Sources: SEC EDGAR (curl + JSON APIs; submissions + 5 concepts — the tickers cache is already fresh), Finviz (WebFetch), Barchart insider trades (WebFetch, best-effort).
+   Budget: ≤10 fetches, 0 WebSearch. **SEC failure is fatal — if SEC fails, skip the rest of the shard and return immediately with the failure flagged.**
 
-1. Re-read `$SESSION_DIR/meta.json` to see which sources succeeded.
-2. Append a stage entry:
+2. **Shard B — financial history.** `SHARD: B`.
+   Sources: Stockanalysis.com (curl + lynx, 3 pages), Macrotrends (slug cache → WebSearch only on cache miss; 4 curl pages + lynx).
+   Budget: ≤9 fetches, ≤1 WebSearch.
+
+3. **Shard C — news + vendor views.** `SHARD: C`.
+   Sources: Google Finance + Google News RSS (curl + RSS + lynx), Simply Wall Street (WebSearch + curl + lynx), Seeking Alpha (curl + lynx, public sections only), Zacks (curl + lynx, best-effort, fail fast on Cloudflare, zero retries).
+   Budget: ≤9 fetches, ≤2 WebSearch (SWS URL resolution + optional Google News company-name fallback).
+
+4. **Shard D — market chatter.** `SHARD: D`.
+   Sources: Yahoo Finance (curl + cookie jar + quoteSummary JSON API, best-effort — usually rate-limited, no retry on first failure), Reddit (curl + .json endpoints, r/stocks + r/wallstreetbets + r/investing), X.com institutional commentary (1 WebSearch, whitelist-gated, best-effort — empty `quotes: []` is `status: ok`).
+   Budget: ≤8 fetches, ≤1 WebSearch.
+
+Wait for all four to return.
+
+### After all four shards return
+
+1. **Merge into meta.json** (one read-modify-write): for every source line in the shard returns, set `meta.json.sources[<slug>] = { "status": ..., "reason": <if failed>, "file": ..., "fetched_at": ... }`. Append four stage entries:
    ```json
-   { "stage": "deep-researcher", "startedAt": "...", "endedAt": "...", "status": "ok", "succeeded": N, "failed": M }
+   { "stage": "fetch-shard-A", "startedAt": "...", "endedAt": "...", "status": "ok", "succeeded": N, "failed": M, "parallel": true }
    ```
-3. **If SEC EDGAR failed** (check `meta.json.sources["sec-edgar"].status == "failed"`), jump to Step 11 (fatal error). SEC is the ground-truth source — without it, no thesis.
-4. **If fewer than 3 sources succeeded in total**, also jump to Step 13 — there's not enough data to build a credible thesis even with the non-fatal sources intact.
-5. Otherwise, mark stage 1 complete in TodoWrite and proceed. It is fine (and expected) that some of SWS, SA, Yahoo may have failed — the thesis can still be built from the remaining sources.
+   (one per shard, A through D).
+
+2. **Cross-source sanity check** — from the shards' returned key facts (no raw-file reads needed), compare where sources overlap:
+   - Company name: SEC vs Finviz vs Yahoo — flag only dramatic differences, not formatting.
+   - Current price and market cap: Finviz vs Yahoo vs Google — flag differences >~3%.
+   - Trailing P/E: flag relative disagreement >20%.
+   If anything is flagged, Write `raw/_sanity.md` recording each disagreement with both values and their sources. Do NOT resolve disagreements — just log them.
+
+3. **Gates:**
+   - **If SEC EDGAR failed** (`meta.json.sources["sec-edgar"].status == "failed"`) — fatal, jump to Step 13 (reason from shard A: `sec-submissions-failed` or `non-us-filer-no-data`). SEC is the ground-truth source — without it, no thesis.
+   - **If fewer than 3 sources succeeded in total** — fatal, jump to Step 13, reason `insufficient-sources`.
+   - Otherwise mark stage 1 complete and proceed. It is fine (and expected) that some of Yahoo, Zacks, SWS, SA fail — the thesis can be built from the remaining sources.
 
 ## Step 7 — Stage 2: Dispatch four analysis agents IN PARALLEL
 
-**Previously sequential, now concurrent.** v0.3.x ran the four analysis skills sequentially in the main context, averaging ~32 minutes of wall-clock time (fundamental 10min + sentiment 9min + peer 5min + risk 8min). Measured Phase 2.5 sessions showed this was the single biggest-time artificial bottleneck in the pipeline. In v0.4.0 the four are subagents dispatched concurrently via the `Task` tool, so wall-clock time on this stage becomes `max(fundamental, sentiment, peer, risk)` ≈ 10 minutes, saving ~22 minutes per deep-dive.
+The four analysis agents are mutually independent: they read from `raw/` (immutable after Stage 1), write to independent `analysis/<name>.md` files, never read each other's in-flight output, and never touch `meta.json`.
 
-The four analysis agents are mutually independent:
-- They read from `raw/` (immutable after Stage 1 completes)
-- They write to independent `analysis/<name>.md` files
-- They do NOT read each other's in-flight output
-- They do NOT touch `meta.json` — the orchestrator updates it after all four return
-
-**Dispatch pattern.** Issue **a single message with four `Task` tool calls**. Claude Code's Task tool runs them concurrently when launched in one message. Each subagent runs in its own isolated context.
+**Dispatch pattern.** Issue **a single message with four `Task` tool calls**. Do NOT fall back to sequential dispatch — the concurrency is the point, and there is no shared mutable state to race on.
 
 For each subagent dispatch, the Task prompt should include:
 
@@ -158,46 +174,32 @@ For each subagent dispatch, the Task prompt should include:
 >
 > Read `SESSION_DIR/meta.json` to discover which `raw/` sources have `status: ok`. Skip failed sources. Follow your agent's hard rules for input discovery, output structure, and return format. Produce your output file at `SESSION_DIR/analysis/<your-slug>.md`. Do NOT touch `meta.json` — the orchestrator will update it after you return. Return a compact summary per your agent's return-summary spec.
 
-Dispatch four `Task` calls **in one message** (not sequentially):
+The four Task calls:
 
-1. **Agent `fundamental-analysis`** → produces `analysis/fundamental.md` (reads SEC, Stockanalysis, Macrotrends, Finviz, optionally Yahoo / SWS / Google Finance)
-2. **Agent `sentiment-synthesis`** → produces `analysis/sentiment.md` (reads Google News, SWS, SA, Zacks, Finviz, SEC 8-K, Reddit, optionally Yahoo / Stockanalysis)
-3. **Agent `peer-comparison`** → produces `analysis/peer-comp.md` (reads SWS competitor snowflakes, Finviz sector tags, Stockanalysis target metrics)
-4. **Agent `risk-screen`** → produces `analysis/risk.md` (reads Finviz, Stockanalysis, Macrotrends, SEC, SWS, SA, Google News)
+1. **Agent `fundamental-analysis`** → produces `analysis/fundamental.md`
+2. **Agent `sentiment-synthesis`** → produces `analysis/sentiment.md`
+3. **Agent `peer-comparison`** → produces `analysis/peer-comp.md`
+4. **Agent `risk-screen`** → produces `analysis/risk.md`
 
-Wait for all four to return. Each returns a compact summary (≤200 words) per its agent's return-summary spec.
+Wait for all four to return. Each returns a compact summary (≤200 words).
 
 ### After all four return
 
-1. **Verify outputs exist.** For each of the four expected files under `SESSION_DIR/analysis/`, check that it was created and is non-empty. If a file is missing, mark that stage entry as failed but continue — downstream stages handle missing analysis files via fallbacks.
+1. **Verify outputs exist.** For each expected file under `SESSION_DIR/analysis/`, check it was created and is non-empty. A missing file marks that stage entry failed, but you continue — downstream stages handle missing analysis files via fallbacks.
 
-2. **Append stage entries to `meta.json.stages`** — one per agent, from the compact summaries:
+2. **Append stage entries to `meta.json.stages`** — one per agent:
    ```json
    { "stage": "fundamental-analysis", "startedAt": "...", "endedAt": "...", "status": "ok", "output": "analysis/fundamental.md", "parallel": true }
-   { "stage": "sentiment-synthesis",  "startedAt": "...", "endedAt": "...", "status": "ok", "output": "analysis/sentiment.md",  "parallel": true }
-   { "stage": "peer-comparison",      "startedAt": "...", "endedAt": "...", "status": "ok", "output": "analysis/peer-comp.md",  "parallel": true }
-   { "stage": "risk-screen",          "startedAt": "...", "endedAt": "...", "status": "ok", "output": "analysis/risk.md",       "parallel": true }
    ```
-   The `parallel: true` field is informational — it marks that these four ran concurrently so post-run timing analysis can tell.
 
 3. **Failure handling:**
-   - If **any single agent** returned an error or produced no output file, log its stage entry as `status: "failed"` with the error reason and continue. One or two analysis failures are non-fatal; thesis-discipline's fallback mode reads from raw files directly when an analysis file is missing.
-   - If **all four agents failed**, log four failed stage entries and set `meta.json.status = "degraded"`. Still not fatal — thesis-discipline will fall back entirely to raw files. But flag this prominently in the final summary so the user knows quality is reduced.
-   - If the **Task dispatch itself errors** (not an agent failure — an orchestration bug), that's fatal — jump to Step 13.
+   - Any single agent failing is non-fatal — log its stage entry as `status: "failed"` and continue; thesis-discipline falls back to raw files for the missing lens.
+   - All four failing sets `meta.json.status = "degraded"` — still non-fatal, but flag it prominently in the final summary.
+   - The Task dispatch itself erroring (an orchestration bug, not an agent failure) is fatal — jump to Step 13.
 
 Mark Stage 2 complete in TodoWrite.
 
-### Why this isn't a race condition
-
-The four agents write to four independent files (`analysis/fundamental.md`, `analysis/sentiment.md`, `analysis/peer-comp.md`, `analysis/risk.md`) — no file is written by more than one agent. None of them touches `meta.json` — only the orchestrator updates it, and only after all four return. The `raw/` files are read-only at this point in the pipeline (deep-researcher finished writing them in Stage 1, nothing modifies them afterward). There is no shared mutable state.
-
-### Why NOT to sequentialize as a fallback
-
-Do NOT fall back to sequential dispatch "for safety". The parallel pattern is the whole point of this refactor — sequential would reintroduce the ~22 minutes of artificial latency we just eliminated. The `Task` tool documentation explicitly supports concurrent subagent dispatch via multiple tool uses in one message. Trust it.
-
 ## Step 8 — Stage 3: Synthesize thesis with thesis-discipline (full mode)
-
-**v0.4.0 change:** `thesis-discipline` is now a subagent (not a Skill), dispatched via `Task`. This runs it in an isolated context that reads only the four analysis files (or raw/ fallbacks), not the orchestrator's accumulated state. Expected speedup: reduces Stage 3 from ~12 min to ~4-6 min by eliminating main-context bloat.
 
 Use the `Task` tool to invoke the `thesis-discipline` subagent. Pass it this prompt:
 
@@ -218,14 +220,7 @@ Wait for the subagent to return. Read its summary.
 
 Append a stage entry to `meta.json.stages`:
 ```json
-{
-  "stage": "thesis-discipline-full",
-  "startedAt": "...",
-  "endedAt": "...",
-  "status": "ok",
-  "output": "thesis.md",
-  "fallbackMode": false
-}
+{ "stage": "thesis-discipline-full", "startedAt": "...", "endedAt": "...", "status": "ok", "output": "thesis.md", "fallbackMode": false }
 ```
 
 Set `fallbackMode: true` if the agent reported reading from `raw/` directly (because analysis files were missing).
@@ -254,24 +249,14 @@ Wait for the subagent to return. Read its summary.
 
 Append a stage entry:
 ```json
-{
-  "stage": "devils-advocate",
-  "startedAt": "...",
-  "endedAt": "...",
-  "status": "ok",
-  "weakestClaimsFound": N,
-  "killSwitchesInadequate": M,
-  "freshFetches": K
-}
+{ "stage": "devils-advocate", "startedAt": "...", "endedAt": "...", "status": "ok", "weakestClaimsFound": N, "killSwitchesInadequate": M, "freshFetches": K }
 ```
 
-If the devils-advocate subagent fails (returns an error or the output file is missing), log it as failed with reason and continue — the report-writer will render a placeholder for the adversarial appendix. Non-fatal; the user can re-run `/stockwiz <TICKER>` to retry. (A future `/stockwiz-bear` command is on the roadmap to allow targeted adversarial re-runs without re-fetching.)
+If the devils-advocate subagent fails (returns an error or the output file is missing), log it as failed with reason and continue — the report-writer will render a placeholder for the adversarial appendix. Non-fatal; the user can re-run `/stockwiz <TICKER>` to retry.
 
 Mark stage 4 complete.
 
 ## Step 10 — Stage 5: Reconcile thesis with adversarial pass
-
-**v0.4.0 change:** `thesis-discipline` reconcile is now a subagent dispatched via `Task`, running in an isolated context that reads only `thesis.md` + `analysis/devils-advocate.md`. Expected speedup: Phase 2.5 measurements showed this stage taking 8 min on SNOW due to main-context bloat; isolated it should drop to 2-3 min.
 
 **If devils-advocate was skipped or failed in Stage 4**, skip this reconcile step entirely. `thesis.md` remains as Stage 3 wrote it. Record a stage entry with `status: "skipped"` and `reason: "devils-advocate-unavailable"`.
 
@@ -293,17 +278,10 @@ Wait for the subagent to return.
 
 Append a stage entry to `meta.json.stages`:
 ```json
-{
-  "stage": "thesis-reconcile",
-  "startedAt": "...",
-  "endedAt": "...",
-  "status": "ok",
-  "adjustmentsApplied": N,
-  "killSwitchesTightened": M
-}
+{ "stage": "thesis-reconcile", "startedAt": "...", "endedAt": "...", "status": "ok", "adjustmentsApplied": N, "killSwitchesTightened": M }
 ```
 
-If reconcile fails (returns error or thesis.md wasn't modified when it should have been), log as `status: "failed"` and continue. Non-fatal — the report-writer will render the original thesis without adjustments. The adversarial appendix still shows devils-advocate's findings; the user can see the delta manually even without the reconcile merge.
+If reconcile fails (returns error or thesis.md wasn't modified when it should have been), log as `status: "failed"` and continue. Non-fatal — the report-writer renders the original thesis without adjustments; the adversarial appendix still shows devils-advocate's findings.
 
 Mark Stage 5 complete.
 
@@ -314,31 +292,31 @@ Use the `Task` tool to invoke the `report-writer` subagent. Pass:
 > Generate a stockwiz HTML artifact for session <SESSION_DIR>.
 >
 > SESSION_DIR: <absolute path>
-> TEMPLATE: deep-dive (v0.3 insights-first)
+> TEMPLATE: deep-dive (insights-first)
 >
-> This is a deep-dive run. The session has raw/ files for up to 12 sources (SEC EDGAR, Finviz, Stockanalysis, Macrotrends, Yahoo, Google Finance + Google News RSS, Simply Wall Street, Seeking Alpha, Zacks, Reddit, Barchart insider trades, X.com institutional commentary), analysis/ files (fundamental, sentiment, peer-comp, risk, devils-advocate) produced by the four analysis agents dispatched in parallel at Stage 2 plus the devils-advocate agent at Stage 4, and a thesis.md (possibly with an Adjustments After Stress Test section from the reconcile step).
+> This is a deep-dive run. The session has raw/ files for up to 12 sources, analysis/ files (fundamental, sentiment, peer-comp, risk, devils-advocate), and a thesis.md (possibly with an Adjustments After Stress Test section from the reconcile step).
 >
-> **Use the v0.3 insights-first template.** This means:
+> **Use the insights-first deep-dive template.** This means:
 >
-> 1. **First, run Step 5 of your agent instructions — curate the TL;DR atoms** BEFORE composing HTML:
->    - Key insight: ONE most striking observation picked from analysis/fundamental.md and analysis/sentiment.md using the heuristic list in deep-dive-template.md (anomalous quality metric / step-change growth / capital-structure surprise / margin inflection / historical outlier / SWS extreme)
+> 1. **First, curate the TL;DR atoms** BEFORE composing HTML (your agent Step 5):
+>    - Key insight: ONE most striking observation picked from analysis/fundamental.md and analysis/sentiment.md using the heuristic list in deep-dive-template.md
 >    - Closest kill switch: the kill switch from thesis.md with the smallest margin of safety, with current/trigger/margin stats
 >    - Biggest unknown: the most material item from thesis.md § Unknowns, one sentence
 >
-> 2. Compose the HTML in the v0.3 section order per deep-dive-template.md:
+> 2. Compose the HTML in the section order per deep-dive-template.md:
 >    - **Above the fold** (always visible): hero → key metrics strip → TL;DR panel (compact three cases hash-shuffled + three callouts for insight/kill-switch/unknown)
 >    - **Below the fold** (native <details>/<summary>, no JavaScript): Three Cases (full, open by default) → Kill Switches → Fundamentals → Sentiment → Peers → Risk → Assumption Ledger → Unknowns → Sources → Adversarial Pass
 >    - **Always visible at bottom**: Disclaimer footer, NOT inside a <details>
 >
-> 3. For each <details> section, produce a one-line abstract in the <summary> so readers can decide what to expand. Use the abstract formulas from Step 6.5 of your agent instructions.
+> 3. For each <details> section, produce a one-line abstract in the <summary> per the abstract formulas in your agent Step 6.5.
 >
 > 4. The compact TL;DR cases and the full Three Cases details section MUST use the SAME hash-shuffled order (FNV-1a hash of ticker mod 6).
 >
 > Before rendering each below-the-fold section, check whether the corresponding analysis file exists and is non-empty. If any file is missing or is a failure stub, render a thin fallback from raw/ files directly per the deep-dive-template graceful-degradation rule. Record per-section fidelity (full / thin / placeholder) in your return summary.
 >
-> Run the compliance pass per skills/report-generation/references/compliance-rules.md before writing. Exemptions: "sell-side", "buy-side", and any text inside `stockwiz-disclaimer` class are NOT rewritten. Analyst distribution labels ("Strong Buy" etc), Yahoo `recommendationKey` strings, Zacks Rank text labels, SA Quant Rating labels, SWS risks list bullets, Reddit post titles, and Google News headlines MUST be wrapped in `<q>` tags when reproduced verbatim.
+> Run the grep-first compliance pass per skills/report-generation/references/compliance-rules.md before promoting the draft to report.html. Exemptions: "sell-side", "buy-side", and any text inside `stockwiz-disclaimer` class are NOT rewritten. Analyst distribution labels ("Strong Buy" etc), Yahoo `recommendationKey` strings, Zacks Rank text labels, SA Quant Rating labels, SWS risks list bullets, Reddit post titles, and Google News headlines MUST be wrapped in `<q>` tags when reproduced verbatim.
 >
-> Return a compact summary with file path, byte count, curated TL;DR atoms (the three atoms you picked), sections present (full/thin/placeholder per below-the-fold section), compliance rewrites applied, stripped sentences, and sanity check results.
+> Return a compact summary with file path, byte count, curated TL;DR atoms, sections present (full/thin/placeholder per below-the-fold section), compliance rewrites applied, stripped sentences, and sanity check results.
 
 Wait for the subagent to return.
 
@@ -348,7 +326,7 @@ Wait for the subagent to return.
 3. If still failing, jump to Step 13 (fatal error).
 
 **On success:**
-1. Append a stage entry for report-writer with the adjustments it reported.
+1. Append a stage entry for report-writer, recording the compliance log from its return summary as `adjustments: [...]` and `strippedSentences: [...]`.
 2. Update `meta.json.reportPath = "report.html"`.
 3. Mark stage 6 complete.
 
@@ -385,7 +363,7 @@ Print the final assistant message to the user. It should include:
    - Base case headline
    - Bear case headline
    - 1–2 of the most important kill switches
-   - Source coverage ("3 of 3 sources succeeded" or "2 of 3, Zacks failed")
+   - Source coverage ("11 of 12 sources succeeded, Zacks failed")
    - Path to the HTML report (not opened automatically — tell the user to open it)
 
 3. **A one-line next-step hint**:
@@ -404,15 +382,15 @@ Any of these must set `meta.json.status = "failed"`, stop the pipeline, and surf
 1. **Setup not run** (Step 2) — `~/.claude/stockwiz/config.json` missing or invalid. User must run `/stockwiz-setup` first.
 2. **Invalid ticker argument** (Step 1) — ticker fails regex `^[A-Z][A-Z.\-]{0,6}$` or is missing entirely. Usage message shown, exit.
 3. **mkdir failure** (Step 3) — creating `$SESSION_DIR/raw/` or `$SESSION_DIR/analysis/` failed (permission, disk full). Surface OS error.
-4. **Ticker not found at SEC** (Step 6) — deep-researcher's SEC stage looked up the ticker in `company_tickers.json` and found no match. Reason `ticker-not-found-at-sec`. This is fatal because SEC is the ground-truth source; without it, no thesis.
-5. **SEC EDGAR unreachable on first run** (Step 6) — the one-time `company_tickers.json` fetch failed (403 UA issue, DNS, network error). Reason `sec-unreachable`. Fatal.
-6. **SEC EDGAR submissions API failed** (Step 6) — ticker resolved but the submissions or companyconcept APIs returned 403/503/timeout even after one retry. Reason `sec-submissions-failed`. Fatal.
-7. **Non-US filer (20-F only) with zero recoverable structured data** (Step 6) — the filer has only 20-F filings AND no XBRL concept data could be extracted. Reason `non-us-filer-no-data`. Fatal.
-8. **Fewer than 3 sources succeeded in total** (Step 6) — deep-researcher returned but sources['ok'].count < 3. Reason `insufficient-sources`. Fatal because no thesis can be built from 2 or fewer vendor snapshots.
-9. **curl not installed** (deep-researcher Step 2.5) — hard dependency missing. Reason `curl-not-installed`. Fatal.
-10. **JSON parser missing** (deep-researcher Step 2.5) — neither `jq` nor `python3` available for SEC JSON parsing. Reason `json-parser-missing`. Fatal.
-11. **report-writer failed twice** (Step 11) — two consecutive attempts at HTML composition returned errors. Reason carries the underlying error. Fatal.
-12. **Compliance pass unresolvable** (Step 11) — report-writer's compliance pass ran 3 iterations and still had banned phrases outside `<q>` tags. Reason `compliance-stuck`. Fatal — we refuse to emit a non-compliant report.
+4. **curl not installed** (Step 4.5) — hard dependency missing. Reason `curl-not-installed`.
+5. **JSON parser missing** (Step 4.5) — neither `jq` nor `python3` available. Reason `json-parser-missing`.
+6. **SEC tickers cache unreachable** (Step 4.5) — the `company_tickers.json` fetch failed (403 UA issue, DNS, network error) and no valid cache exists. Reason `sec-unreachable`.
+7. **Ticker not found at SEC** (Step 4.5) — no match in `company_tickers.json`. Reason `ticker-not-found-at-sec`. Fatal because SEC is the ground-truth source; without it, no thesis.
+8. **SEC EDGAR submissions API failed** (Step 6, shard A) — CIK resolved but the submissions or companyconcept APIs returned 403/503/timeout even after one retry. Reason `sec-submissions-failed`.
+9. **Non-US filer (20-F only) with zero recoverable structured data** (Step 6, shard A) — the filer has only 20-F filings AND no XBRL concept data could be extracted. Reason `non-us-filer-no-data`.
+10. **Fewer than 3 sources succeeded in total** (Step 6) — reason `insufficient-sources`. No credible thesis can be built from 2 or fewer vendor snapshots.
+11. **report-writer failed twice** (Step 11) — two consecutive attempts at HTML composition returned errors. Reason carries the underlying error.
+12. **Compliance pass unresolvable** (Step 11) — the compliance pass ran 3 iterations and still had banned phrases outside `<q>` tags. Reason `compliance-stuck` — we refuse to emit a non-compliant report.
 
 ### Handling procedure
 
@@ -426,53 +404,31 @@ Any of these must set `meta.json.status = "failed"`, stop the pipeline, and surf
      "failedAtStage": "<stage-name-that-jumped-here>"
    }
    ```
-2. Do NOT emit `report.html`. If a partial `report.html` exists from a failed report-writer attempt, delete it.
+2. Do NOT emit `report.html`. If a partial draft exists from a failed report-writer attempt, delete it.
 3. Print to the user:
    > stockwiz deep-dive on `<TICKER>` failed.
    > Stage: `<failed-stage>`
    > Reason: `<reason code>` — `<human-readable explanation>`
    > Session workspace saved at `<SESSION_DIR>` for inspection.
-   > `<one or two sentences of diagnostic guidance from the table above>`
+   > `<one or two sentences of diagnostic guidance>`
 4. Return.
 
 ### Non-fatal failures (for reference — these do NOT jump to Step 13)
 
-The following are explicitly non-fatal and must not call Step 13:
-
-- Any individual non-SEC source failing (Zacks Cloudflare, Yahoo rate limit, Reddit 429, SWS paywall, SA SSR gap) — deep-researcher marks the source `failed` and continues.
-- `lynx` not installed — deep-researcher falls back to raw-HTML Read for lynx-dependent sources.
-- Any individual analysis agent writing a stub (missing raw inputs) — downstream agents and report-writer handle stubs via thin fallbacks.
-- devils-advocate subagent failing — Stage 5 (reconcile) is skipped, report-writer renders the Adversarial Appendix as a placeholder.
+- Any individual non-SEC source failing (Zacks Cloudflare, Yahoo rate limit, Reddit 429, SWS paywall, SA SSR gap) — the shard marks the source `failed` and continues with its remaining sources.
+- `lynx` not installed — shards fall back to raw-HTML Read for lynx-dependent sources.
+- Any individual analysis agent writing a stub — downstream agents and report-writer handle stubs via thin fallbacks.
+- devils-advocate failing — Stage 5 (reconcile) is skipped, report-writer renders the Adversarial Appendix as a placeholder.
 - Cookie jar leaks in `/tmp/stockwiz-*` — cleanup bug, not a fatal condition.
 
 ## Edge cases
 
-- **Ticker that doesn't exist.** SEC EDGAR (via curl + `company_tickers.json`) will not find the ticker in the mapping file. deep-researcher marks the source failed with reason `ticker-not-found-at-sec`. This is fatal — jump to Step 13 with message: "No SEC filings found for <TICKER>. Verify it is a US-listed equity."
-
-- **Non-US filer (20-F only).** We try to extract whatever structured XBRL data is available from SEC (many FPIs file some facts) and flag the source with a note. The orchestrator proceeds if any data was recovered, else treats it as a fatal SEC failure.
-
-- **lynx not installed.** Stockanalysis, SWS, and SA reference files all prefer lynx for HTML→text conversion. If lynx is missing, deep-researcher falls back to Read-with-limit on the raw HTML file. This is slower and less clean but still functional. The deep-researcher's Step 2.5 prerequisite check notes the missing tool; the agent's summary should mention it so the user knows why certain extractions are thinner than they could be.
-
-- **curl not installed.** Hard dependency. deep-researcher's Step 2.5 aborts with `curl-not-installed`. User needs to install curl (should be present on every macOS and Linux system by default).
-
-- **SEC company_tickers.json fetch fails on first run.** The cache doesn't exist yet. If the fetch fails with a 403 (UA issue) or network error, treat as fatal SEC failure and jump to Step 13 — no CIK lookup means no SEC at all.
-
-- **Analysis agent failure.** Any of the four analysis agents may write a stub file (or no file) if its raw inputs are all failed. The thesis-discipline agent's `full` mode handles this via its fallback mode (reads raw files directly). The report-writer agent renders a thin fallback for that section. Non-fatal at every stage.
-
-- **Devils-advocate failure.** If the Task call times out or the subagent returns an error, log it and skip the reconcile stage (Stage 5). The report-writer will render a placeholder for the Adversarial Appendix section noting the pass was skipped. Non-fatal.
-
-- **Cookie jar leaks.** Yahoo's fetch creates a cookie jar tempfile. It should be deleted after Yahoo finishes (success or failure). If you notice `/tmp/stockwiz-yahoo-cookies.*` files accumulating over many runs, that's a cleanup bug worth fixing.
-
-- **Same-ticker same-second.** The timestamp includes seconds, so collisions are extremely unlikely. If one does occur (mkdir fails with EEXIST), append a short suffix and retry once.
-
-- **Disk full / permission error during session dir creation.** Surface the OS error, abort, do not attempt to continue.
-
-- **User interrupts mid-run.** Claude Code will handle this — the session dir remains on disk with `status: "started"` and whatever partial files were written. The user can manually inspect the directory, or re-run `/stockwiz <TICKER>` to start fresh. A future `/stockwiz-revisit` command on the roadmap would detect interrupted sessions and offer to resume them.
+- **Same-ticker same-second.** The timestamp includes seconds, so collisions are extremely unlikely. If one occurs (mkdir fails with EEXIST), append a short suffix and retry once.
+- **Non-US filer (20-F only).** Shard A extracts whatever structured XBRL data is available and flags the source. Proceed if any data was recovered, else treat as fatal SEC failure.
+- **User interrupts mid-run.** The session dir remains on disk with `status: "started"` and whatever partial files were written. The user can inspect it or re-run `/stockwiz <TICKER>` to start fresh.
+- **Disk full / permission error during session dir creation.** Surface the OS error, abort.
+- **One shard returns nothing** (Task error, not a source failure). Mark its sources as failed with reason `shard-dispatch-error` and apply the normal gates: fatal only if SEC was in that shard or the total ok-count drops below 3.
 
 ## What success looks like
 
-The user runs `/stockwiz NVDA`. They see a todo list with seven stages. Stage 1 gathers 6–12 sources via the deep-researcher agent in ~20 minutes. Stage 2 dispatches **four analysis agents concurrently** in a single message — fundamental extracts multi-year numbers and builds an assumption ledger, sentiment weighs SWS risks vs analyst distribution and computes the publisher-distribution shape, peer-comparison builds a comp table from SWS competitor snowflakes, risk-screen enumerates beta/drawdown/cycle/concentration/tail — and the orchestrator waits for all four to return (~10 minutes, max of the four, not the sum). Stage 3 dispatches the thesis-discipline agent in `full` mode to synthesize the thesis from the four analysis files (falls back to raw files if any are missing). Stage 4 spawns the red-colored devils-advocate agent in an isolated context; it reads only thesis.md, ranks the weakest claims, builds a coherent opposing narrative, and rewrites weak kill switches. Stage 5 dispatches the thesis-discipline agent again in `reconcile` mode to append an "Adjustments After Stress Test" section to thesis.md while preserving the original claims verbatim. Stage 6 runs the report-writer agent which curates three TL;DR atoms (key insight, closest kill switch, biggest unknown) and composes a 60–150KB insights-first HTML report with collapsible `<details>` sections for the full analyses and adversarial appendix. Stage 7 finalizes meta.json. Total wall-clock ~45 minutes (down from ~78 minutes in v0.3.x) thanks to the Stage 2 parallelization and the isolated-context speedups in Stages 3 and 5.
-
-The user opens `report.html` and sees a clean research brief with three equal-weight columns, a full fundamentals section with multi-year sparklines, an insider-activity grid, a peer comp table, a drawdown profile, an assumption ledger you can interrogate row-by-row, a full-width kill-switches row calibrated with margin-of-safety numbers, a red-highlighted adversarial appendix with ranked weakest claims and kill-switch rewrites, and a disclaimer footer that can't be removed. They come back to the chat and ask "what did devils-advocate say about the margin thesis?" — the main context Greps `analysis/devils-advocate.md` and answers with citation, no re-fetch.
-
-That's the current bar.
+The user runs `/stockwiz NVDA` and sees a seven-stage todo list. Stage 1 fetches 12 sources via four concurrent fetch shards (~6–8 minutes, max of the four instead of the sum). Stage 2 runs the four analysis agents concurrently (~10 minutes). Stages 3–5 synthesize the thesis, attack it with devils-advocate, and reconcile the material findings. Stage 6 composes a 60–150KB insights-first HTML report with a compliance-clean disclaimer footer. Total wall-clock ~25–30 minutes. The user opens `report.html`, sees three equal-weight cases, measurable kill switches with margins of safety, and a red adversarial appendix — then asks follow-up questions that are answered from the session workspace without re-fetching.

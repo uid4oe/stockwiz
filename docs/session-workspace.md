@@ -60,25 +60,26 @@ These are cleaned up by the fetching source's reference file at end-of-source. I
 | Path | Created by | Read by | Mutated after creation? | Persists? |
 |---|---|---|---|---|
 | `config.json` | `/stockwiz-setup` | all commands | yes (user updates, setup re-runs) | yes |
-| `cache/company_tickers.json` | `deep-researcher` (first SEC fetch) | `deep-researcher` | refreshed every 30 days | yes |
-| `cache/macrotrends-slugs.json` | `deep-researcher` (first Macrotrends fetch on new ticker) | `deep-researcher` | append-only | yes |
-| `sessions/<T>-<t>/meta.json` | `/stockwiz` Step 4 | every stage | **yes — multi-writer, see below** | yes |
-| `sessions/<T>-<t>/raw/*.md` | `deep-researcher` | analysis agents, thesis-discipline, report-writer | **no — immutable audit trail** | yes |
-| `sessions/<T>-<t>/raw/*.json` | `deep-researcher` | debugging only | no | yes |
+| `cache/company_tickers.json` | `/stockwiz` pre-flight (Step 4.5) | `/stockwiz` pre-flight (CIK lookup) | refreshed every 30 days | yes |
+| `cache/macrotrends-slugs.json` | `deep-researcher` shard B (first Macrotrends fetch on new ticker) | `deep-researcher` shard B | append-only | yes |
+| `sessions/<T>-<t>/meta.json` | `/stockwiz` Step 4 | every stage | **yes — orchestrator only, between stages** | yes |
+| `sessions/<T>-<t>/raw/*.md` | `deep-researcher` fetch shards (`_sanity.md`: orchestrator) | analysis agents, thesis-discipline, report-writer | **no — immutable audit trail** | yes |
+| `sessions/<T>-<t>/raw/*.json` | `deep-researcher` fetch shards | debugging only | no | yes |
 | `sessions/<T>-<t>/analysis/fundamental.md` | `fundamental-analysis` agent | `thesis-discipline`, `report-writer` | no | yes |
 | `sessions/<T>-<t>/analysis/sentiment.md` | `sentiment-synthesis` agent | `thesis-discipline`, `report-writer` | no | yes |
 | `sessions/<T>-<t>/analysis/peer-comp.md` | `peer-comparison` agent | `thesis-discipline`, `report-writer` | no | yes |
 | `sessions/<T>-<t>/analysis/risk.md` | `risk-screen` agent | `thesis-discipline`, `report-writer` | no | yes |
 | `sessions/<T>-<t>/analysis/devils-advocate.md` | `devils-advocate` agent | `thesis-discipline` reconcile, `report-writer` | no | yes |
 | `sessions/<T>-<t>/thesis.md` | `thesis-discipline` full mode | `devils-advocate`, `thesis-discipline` reconcile, `report-writer` | **yes — reconcile appends `## Adjustments After Stress Test`, never overwrites existing sections** | yes |
-| `sessions/<T>-<t>/report.html` | `report-writer` agent | end user | no (re-runs create new session dir) | yes |
+| `sessions/<T>-<t>/report-draft.html` | `report-writer` agent | `report-writer` (splice + compliance) | yes, until promoted | no — promoted to `report.html` or deleted on abort |
+| `sessions/<T>-<t>/report.html` | `report-writer` agent (promotion of clean draft) | end user | no (re-runs create new session dir) | yes |
 | `/tmp/stockwiz-*` | individual sources | parsing | yes | no — cleaned after source completes |
 
 ## Multi-writer rules
 
 ### Immutable once written
 
-`raw/*.md` files are **never modified** after they are first written by `deep-researcher`. They are the audit trail. Downstream stages read them; if they need derived information they write it to `analysis/`, not back to `raw/`. This is a hard rule — violations destroy auditability.
+`raw/*.md` files are **never modified** after they are first written by the `deep-researcher` fetch shards. They are the audit trail. Downstream stages read them; if they need derived information they write it to `analysis/`, not back to `raw/`. This is a hard rule — violations destroy auditability.
 
 `analysis/*.md` files are written once by their owning agent and then only read by downstream stages. The owning agent is the sole writer of its file.
 
@@ -86,22 +87,24 @@ These are cleaned up by the fetching source's reference file at end-of-source. I
 
 `thesis.md` is written by the `thesis-discipline` agent in `full` mode, then the same agent in `reconcile` mode appends a `## Adjustments After Stress Test` section. The bull/base/bear case bodies are **never rewritten** — reconcile adds a new section that records the delta, preserving the original claims verbatim for audit.
 
-### Read-modify-write
+### Read-modify-write — orchestrator only
 
-`meta.json` is the single mutable state file. Multiple writers need to append entries without clobbering each other. The convention is **always Read first, mutate, Write**, never Write without reading the current state:
+`meta.json` is the single mutable state file, and **the orchestrator is its only writer**. Subagents — the four fetch shards, the four analysis agents, thesis-discipline, devils-advocate, report-writer — return compact summaries, and the orchestrator merges them into `meta.json` between stages. This is what makes the parallel dispatch at Stages 1 and 2 race-free: concurrent subagents write disjoint files and never touch shared state.
+
+When the orchestrator updates meta.json, the convention is **always Read first, mutate, Write**, never Write without reading the current state:
 
 ```python
-# idiomatic meta.json update from any stage
+# idiomatic meta.json update (orchestrator, between stages)
 import json
 with open(meta_path) as f:
     m = json.load(f)
-m['sources']['finviz'] = {'status': 'ok', 'file': 'raw/finviz-snapshot.md', ...}
-m['stages'].append({'stage': 'deep-researcher', 'startedAt': ..., 'status': 'ok'})
+m['sources']['finviz'] = {'status': 'ok', 'file': 'raw/finviz-snapshot.md', 'fetched_at': ...}
+m['stages'].append({'stage': 'fetch-shard-A', 'startedAt': ..., 'status': 'ok', 'parallel': True})
 with open(meta_path, 'w') as f:
     json.dump(m, f, indent=2)
 ```
 
-Since stockwiz runs in a single Claude Code session per user and the stages are sequential (not parallel), there is no race condition in practice. The read-modify-write pattern is defensive coding against future parallelism.
+One special case: `raw/_sanity.md` is composed by the **orchestrator** (not a shard) after Stage 1, from the key facts the shards return — cross-source disagreements span shards, so no single shard can see them. Like every other `raw/` file, it is immutable once written.
 
 ## meta.json schema (authoritative)
 
@@ -117,7 +120,7 @@ Every session directory contains exactly one `meta.json` with this shape. This i
   "mode": "full",                        // "full" (only mode currently built)
                                          // reserved: "thesis", "compare", "bear", "revisit"
   "horizon": "long",                     // "long" | "swing"
-  "commandVersion": "0.3.2",             // version of /stockwiz that created this session
+  "commandVersion": "0.5.0",             // version of /stockwiz that created this session
   "createdAt": "2026-04-11T14:32:00-07:00",  // ISO 8601 with local tz offset
 
   // Status of the session. Transitions: started -> (complete | degraded | failed).
@@ -127,20 +130,23 @@ Every session directory contains exactly one `meta.json` with this shape. This i
   // Each stage entry has { stage, startedAt, endedAt, status, ...stage-specific-fields }.
   "stages": [
     {
-      "stage": "deep-researcher",
+      "stage": "fetch-shard-A",          // one entry per fetch shard, A through D
       "startedAt": "2026-04-11T14:32:01-07:00",
       "endedAt":   "2026-04-11T14:33:45-07:00",
       "status": "ok",                    // "ok" | "degraded" | "failed"
-      "succeeded": 9,                    // count of sources that returned usable data
-      "failed": 1,                       // count of sources marked failed
-      "notes": "yahoo rate-limited (non-fatal)"
+      "succeeded": 3,                    // count of this shard's sources that returned usable data
+      "failed": 0,                       // count of this shard's sources marked failed
+      "parallel": true,                  // informational — ran concurrently with its siblings
+      "notes": ""
     },
+    // ...fetch-shard-B, fetch-shard-C, fetch-shard-D
     {
       "stage": "fundamental-analysis",
       "startedAt": "...",
       "endedAt": "...",
       "status": "ok",
-      "output": "analysis/fundamental.md"
+      "output": "analysis/fundamental.md",
+      "parallel": true
     },
     // ...sentiment-synthesis, peer-comparison, risk-screen, thesis-discipline (full),
     //    devils-advocate, thesis-discipline (reconcile), report-writer
@@ -179,23 +185,23 @@ Every session directory contains exactly one `meta.json` with this shape. This i
     }
   ],
 
-  // Per-source fetch results. Keys are source slugs from source-extraction/SKILL.md.
+  // Per-source fetch results, merged in by the orchestrator from the shard returns.
+  // Keys are source slugs from source-extraction/SKILL.md. The fetched URL is not
+  // duplicated here — it lives in the raw file's frontmatter (the audit trail).
   "sources": {
     "sec-edgar": {
       "status": "ok",                    // "ok" | "failed" | "degraded"
-      "url": "https://data.sec.gov/submissions/CIK0001045810.json",
       "fetched_at": "2026-04-11T14:32:15-07:00",
       "file": "raw/sec-edgar-10k.md"     // path relative to session dir
     },
     "yahoo-finance": {
       "status": "failed",
       "reason": "rate-limited",          // see failure-mode detection table in source-extraction/SKILL.md
-      "url": "https://query1.finance.yahoo.com/v10/finance/quoteSummary/NVDA?modules=...",
       "fetched_at": "2026-04-11T14:33:20-07:00",
       "file": "raw/yahoo-fundamentals.md"  // written as a failure stub
     }
     // ...finviz, stockanalysis, macrotrends, google-finance, simply-wall-street,
-    //    seeking-alpha, zacks, reddit
+    //    seeking-alpha, zacks, reddit, barchart, x-com
   },
 
   // Terminal state fields set by the finalize stage.
@@ -213,7 +219,7 @@ Every session directory contains exactly one `meta.json` with this shape. This i
 ### Valid field transitions
 
 - `status`: starts as `"started"`, transitions forward only — `started → complete` / `started → degraded → complete` / `started → failed`. Never goes back to `started`.
-- `sources[slug].status`: set once by `deep-researcher`, never modified after. If a source fails and later retries succeed, write a new source slug (e.g. `yahoo-finance-retry`), don't mutate the original.
+- `sources[slug].status`: set once by the orchestrator when merging the shard returns, never modified after. If a source fails and a later retry succeeds, write a new source slug (e.g. `yahoo-finance-retry`), don't mutate the original.
 - `stages[]`: append-only. Never remove or reorder entries.
 - `reportPath`, `completedAt`, `failedAt`, `error`: set by the finalize step of `/stockwiz`, not by subagents.
 
@@ -273,7 +279,7 @@ Mirror of SEC's `https://www.sec.gov/files/company_tickers.json` (their format):
 }
 ```
 
-Refreshed by `deep-researcher` when: (a) file doesn't exist, or (b) file is more than 30 days old.
+Refreshed by the `/stockwiz` orchestrator's pre-flight (Step 4.5) when: (a) the file doesn't exist, or (b) it is more than 30 days old. The pre-flight also does the ticker→CIK lookup locally, so `ticker-not-found-at-sec` aborts before any shard is dispatched.
 
 ### `cache/macrotrends-slugs.json`
 

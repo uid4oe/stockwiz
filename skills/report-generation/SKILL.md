@@ -1,7 +1,7 @@
 ---
 name: report-generation
 description: This skill should be used when producing HTML research artifacts from a stockwiz session workspace. Provides section templates, inline styling rules, citation structure, disclaimer injection, and the mandatory compliance pass. Defers aesthetic direction to the frontend-design skill.
-version: 0.1.0
+version: 0.5.0
 ---
 
 # report-generation
@@ -30,7 +30,7 @@ The HTML file must open in any browser with no network access and render correct
 - **Inline `<script>`** — preferably none at all; if needed, inline only, never `src=`
 - **No `<img src="https://..."/>`** — use inline SVG or `data:` URLs for any visual
 - **Fonts** — at most one Google Fonts `<link>` for a display face, with `font-display:swap` so the document renders immediately even if the font fails to load. System stack + Google Font is the only external dependency allowed.
-- **Base CSS** — load from `${CLAUDE_PLUGIN_ROOT}/skills/report-generation/assets/base-styles.css` and inline into the `<style>` block
+- **Base CSS** — spliced from `${CLAUDE_PLUGIN_ROOT}/skills/report-generation/assets/base-styles.css` into the `/*@@BASE_STYLES@@*/` marker inside the `<style>` block by the report-writer's post-composition Bash splice. The CSS file is never loaded into model context — the splice injects it byte-for-byte.
 
 ### Citation structure
 
@@ -67,19 +67,19 @@ The HTML is a document, not an app. Tabs, collapsibles, charts — all of these 
 
 ## Compliance pass — mandatory
 
-**Before** writing the HTML to disk, run the compliance pass as specified in [`references/compliance-rules.md`](references/compliance-rules.md). In summary:
+**Before** promoting the draft to `report.html`, run the grep-first compliance pass as specified in [`references/compliance-rules.md`](references/compliance-rules.md). In summary:
 
-1. Load the banned phrase table from the compliance rules reference.
-2. For each rule, search the HTML case-insensitive with word boundaries, skipping matches inside `<q>...</q>` and inside HTML attributes, URLs, comments, and `<code>`/`<pre>` blocks.
-3. Apply rewrites. For "strip sentence" rules, remove the enclosing sentence and log to `meta.json.stages`.
-4. Re-scan; loop up to 3 times.
-5. If banned phrases remain outside `<q>` after 3 iterations, **abort** and return an error to the calling command. Do not write a non-compliant report.
+1. Compose to `SESSION_DIR/report-draft.html`, then run the canonical candidate grep from the compliance rules via Bash — never re-scan the full 60–150KB HTML in model context.
+2. Judge each matching line against the exemptions (`<q>...</q>`, HTML attributes, URLs, comments, `<code>`/`<pre>`, `-side` compounds, disclaimer block).
+3. Apply targeted rewrites. For "strip sentence" rules, remove the enclosing sentence and keep a local log for the return summary.
+4. Re-grep; loop up to 3 times.
+5. If banned phrases remain outside the exemptions after 3 iterations, **abort**: delete the draft and return an error to the calling command. Only a clean draft is promoted to `report.html`.
 
-Log every rewrite and every stripped sentence to `meta.json.stages` under the `report-writer` stage as an `adjustments: [...]` array.
+Report every rewrite and every stripped sentence in the return summary — the orchestrator records them as `adjustments: [...]` / `strippedSentences: [...]` on the report-writer stage entry in meta.json (subagents never write meta.json).
 
 ## Disclaimer injection
 
-Load `${CLAUDE_PLUGIN_ROOT}/skills/report-generation/assets/disclaimer.html` verbatim and append it as the final element before `</body>`. Substitute placeholders:
+The report-writer emits a `<!--@@DISCLAIMER@@-->` marker as the final element before `</body>`; its post-composition Bash splice replaces the marker with `${CLAUDE_PLUGIN_ROOT}/skills/report-generation/assets/disclaimer.html` verbatim and substitutes the placeholders:
 
 - `{version}` → plugin version from `.claude-plugin/plugin.json`
 - `{timestamp}` → ISO timestamp of report generation
@@ -99,7 +99,7 @@ For typography, color, hero treatment, and anything visual beyond the grid/layou
 
 ## Output convention
 
-Write to `SESSION_DIR/report.html`. After writing, verify:
+Compose to `SESSION_DIR/report-draft.html`, splice assets, run the compliance pass, then promote the clean draft to `SESSION_DIR/report.html`. After promotion, verify:
 
 - File size is between **10KB and 500KB** (via Bash `wc -c`). Under 10KB means something's missing; over 500KB means binary bloat leaked in.
 - The file starts with `<!DOCTYPE html>` and ends with `</html>`.
@@ -116,6 +116,6 @@ Return to the caller a summary:
 
 ## Scope
 
-only the deep-dive template is wired, and its section set is the reduced version described in `references/deep-dive-template.md` (hero, snapshot, three cases placeholder, sources, disclaimer). 
+Only the deep-dive template is wired, with the full insights-first section set described in `references/deep-dive-template.md`: hero → key metrics strip → TL;DR panel above the fold, then collapsible Three Cases / Kill Switches / Fundamentals / Sentiment / Peers / Risk / Assumption Ledger / Unknowns / Sources / Adversarial Pass, and the always-visible disclaimer footer.
 
-If a report has only 3 raw sources (SEC EDGAR, Yahoo, Finviz), the snapshot strip will have 4–6 populated cards and the three cases will have 1–2 claims each. That's acceptable — the walking skeleton is supposed to look thin. The goal is an end-to-end pipeline that produces a valid compliant HTML file.
+Sections degrade gracefully: if an analysis file is missing or is a failure stub, the report-writer renders a thin fallback from `raw/` files (or a placeholder note) and records per-section fidelity in its return summary. A report built from few sources looks thin — that's acceptable and honest; a padded-out report is not.

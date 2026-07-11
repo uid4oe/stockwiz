@@ -32,9 +32,9 @@ Violations to watch for:
 - Don't let thesis-discipline modify raw data, only analysis outputs.
 - Don't let the report-writer invent numbers; if it can't find a citation in `raw/` or `analysis/`, the number doesn't appear in the report.
 
-## State-flow diagram: `/stockwiz <TICKER>` pipeline (v0.4.0)
+## State-flow diagram: `/stockwiz <TICKER>` pipeline (v0.5.0)
 
-**All work units are subagents.** v0.3.x had a mixed model (some Skills loaded into main context, some agents via Task). v0.4.0 consolidates: every non-trivial work unit is a subagent dispatched via Task, running in an isolated context. The Stage 2 analysis agents dispatch in parallel; all other stages dispatch one agent sequentially because of data dependencies.
+**All work units are subagents.** Every non-trivial work unit is a subagent dispatched via Task, running in an isolated context. Stage 1 dispatches four fetch shards in parallel; Stage 2 dispatches the four analysis agents in parallel; all other stages dispatch one agent sequentially because of data dependencies. The orchestrator is the **sole writer of meta.json** — subagents return compact summaries and the orchestrator merges them.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -44,27 +44,37 @@ Violations to watch for:
                                  │
                                  ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│  Steps 1-5: pre-flight                                               │
+│  Steps 1-5: pre-flight (all in the orchestrator's own context)       │
 │  ├─ parse args (TICKER, --horizon)                                   │
 │  ├─ check config.json exists (else exit: need /stockwiz-setup)       │
 │  ├─ create SESSION_DIR/raw/, SESSION_DIR/analysis/                   │
 │  ├─ write initial meta.json (schemaVersion=1, status=started)        │
+│  ├─ check prerequisites (curl fatal, jq|python3 fatal, lynx noted)   │
+│  ├─ resolve TICKER→CIK locally from the SEC tickers cache            │
+│  │   └─ no match → FATAL ticker-not-found-at-sec, nothing dispatched │
 │  └─ TodoWrite the 7 pipeline stages                                  │
 └────────────────────────────────┬─────────────────────────────────────┘
                                  │
                                  ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│  STAGE 1 — deep-researcher (Task subagent, isolated context)         │
-│  Fetches 12 sources in priority order (SEC first, then Finviz,       │
-│  Stockanalysis, Macrotrends, Yahoo, Google News, SWS, SA, Zacks,     │
-│  Reddit, Barchart insider, X.com). Writes raw/*.md files, updates    │
-│  meta.json.sources[].                                                │
-│  Returns ≤300 word summary (no raw content).                         │
+│  STAGE 1 — FOUR FETCH SHARDS DISPATCHED IN PARALLEL                  │
+│  (one message, 4 Task calls, all `deep-researcher` instances)        │
+│                                                                      │
+│  ┌─ A: SEC EDGAR → Finviz → Barchart ──────────── (fatal gate) ─┐    │
+│  ├─ B: Stockanalysis → Macrotrends ──────────────────────────────┤   │
+│  ├─ C: Google News/Finance → SWS → Seeking Alpha → Zacks ────────┤   │
+│  └─ D: Yahoo → Reddit → X.com ───────────────────────────────────┘   │
+│                                                                      │
+│  Shards hit disjoint origins (politeness preserved), write disjoint  │
+│  raw/*.md files, never touch meta.json. Each returns ≤200-word       │
+│  per-source statuses + key facts. Wall-clock ≈ max(A..D), not sum.   │
+│  Orchestrator merges statuses into meta.json.sources (one write),    │
+│  runs the cross-source sanity check from the returned key facts.     │
 └────────────────────────────────┬─────────────────────────────────────┘
                                  │
                      ┌───────────┴──────────┐
                      │                      │
-               SEC ok?                SEC failed?
+        SEC ok, ≥3 sources ok?       SEC failed or <3 ok?
                      │                      │
                      ▼                      ▼
 ┌─────────────────────────────┐  ┌───────────────────────────────┐
@@ -124,11 +134,11 @@ Violations to watch for:
 │  STAGE 6 — report-writer (Task, isolated)                    │
 │  Step 5: curate TL;DR atoms (key insight / closest kill      │
 │          switch / biggest unknown)                           │
-│  Step 6: compose v0.3 insights-first HTML                    │
+│  Step 6: compose insights-first HTML with @@ asset markers   │
 │    hero → metrics → TL;DR → <details> sections → footer     │
-│  Step 8: compliance pass (≤3 iterations, abort if fails)     │
-│  Step 9: write report.html                                   │
-│  Step 10: verify (size, markers, compliance grep)            │
+│  Step 8: write report-draft.html, Bash-splice CSS+disclaimer │
+│  Step 9: grep-first compliance pass (≤3 iters, abort→delete) │
+│  Step 10: promote draft → report.html, verify (size, grep)   │
 └────────────┬─────────────────────────────────────────────────┘
              │
              ▼
@@ -140,29 +150,30 @@ Violations to watch for:
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**Wall-clock impact of the v0.4.0 parallel refactor** (from Phase 2.5 session data):
+**Wall-clock impact of the parallel refactors** (v0.4.0 measured from Phase 2.5 session data; v0.5.0 estimated):
 
-| Stage | v0.3.x (sequential) | v0.4.0 (parallel) |
-|---|---|---|
-| Stage 2 total | ~32 min (600+540+300+480s) | ~10 min (max of the four) |
-| Stage 3 (thesis full) | ~12 min (main context bloat) | ~4-6 min (isolated) |
-| Stage 5 (reconcile) | ~8 min | ~2-3 min |
-| **All other stages combined** | ~26 min | ~26 min (unchanged) |
-| **TOTAL** | **~78 min** | **~45 min** |
+| Stage | v0.3.x (sequential) | v0.4.0 | v0.5.0 |
+|---|---|---|---|
+| Stage 1 (fetch) | ~20 min (12 sources serial) | ~20 min | ~6-8 min (max of 4 shards) |
+| Stage 2 total | ~32 min (600+540+300+480s) | ~10 min (max of the four) | ~10 min |
+| Stage 3 (thesis full) | ~12 min (main context bloat) | ~4-6 min (isolated) | ~4-6 min |
+| Stage 5 (reconcile) | ~8 min | ~2-3 min | ~2-3 min |
+| All other stages | ~6 min | ~6 min | ~6 min |
+| **TOTAL** | **~78 min** | **~45 min** | **~25-30 min** |
 
-~42% reduction in end-to-end wall-clock time.
+v0.4.0 cut ~42% by parallelizing Stage 2 and isolating Stages 3/5; v0.5.0 cuts another ~35% by sharding Stage 1 across four concurrent fetch agents with disjoint origins.
 
 ### Fatal vs non-fatal failures
 
-Only the **SEC EDGAR fetch** is fatal in the normal pipeline. The reasoning: SEC filings are the ground truth for US equities; without them, every downstream claim is ungrounded. Everything else is non-fatal:
+Only the **SEC EDGAR path** is fatal in the normal pipeline. The reasoning: SEC filings are the ground truth for US equities; without them, every downstream claim is ungrounded. The common case — ticker not found — is caught by the orchestrator's pre-flight CIK lookup before any shard is dispatched; the rare case — SEC's APIs down — surfaces via shard A's return. Everything else is non-fatal:
 
-- **Any individual non-SEC source can fail** (Zacks Cloudflare, Yahoo 429, Reddit JSON-body 429, etc.) — deep-researcher logs the failure and continues to the next source. The analysis layer gracefully degrades and flags the gap in the Unknowns section.
+- **Any individual non-SEC source can fail** (Zacks Cloudflare, Yahoo 429, Reddit JSON-body 429, etc.) — the owning fetch shard logs the failure and continues with its remaining sources. The analysis layer gracefully degrades and flags the gap in the Unknowns section.
 - **Fewer than 3 total sources succeeding** is fatal — not enough data to build a credible thesis.
 - **An individual analysis agent failing** is non-fatal — the agent writes a stub (or no file), the thesis-discipline agent falls back to reading raw files directly, and the report-writer agent renders a thin section with a placeholder note.
 - **devils-advocate failing** is non-fatal — Stage 5 is skipped, Stage 6 renders the adversarial appendix as a placeholder.
 - **report-writer compliance pass failing after 3 iterations** is fatal — we refuse to emit a non-compliant report rather than silently pass.
 
-These are all enforced in `commands/stockwiz.md` Step 6 / Step 9 / Step 13. The complete fatal-error list lives in Step 13.
+These are all enforced in `commands/stockwiz.md` Steps 4.5, 6, 11, and 13. The complete fatal-error list lives in Step 13.
 
 ## Agent vs skill: the decision rule
 
@@ -187,7 +198,7 @@ stockwiz has two ways to package a work unit:
 
 | Component | Type | Primary reason |
 |---|---|---|
-| `deep-researcher` | agent | Context pollution — reads raw HTML, JSON, lynx dumps across 12 sources |
+| `deep-researcher` | agent | Context pollution — reads raw HTML, JSON, lynx dumps. Dispatched ×4 in parallel at Stage 1, one instance per fetch shard, each loading only its own sources' reference files |
 | `fundamental-analysis` | agent | Context pollution + dispatched in parallel with three siblings at Stage 2 |
 | `sentiment-synthesis` | agent | Context pollution + dispatched in parallel |
 | `peer-comparison` | agent | Dispatched in parallel at Stage 2 (inputs are small, but parallel execution is the win) |
@@ -200,7 +211,16 @@ stockwiz has two ways to package a work unit:
 
 **Only two Skills remain**, and both are pure reference libraries (`source-extraction/SKILL.md` with per-source reference files, `report-generation/SKILL.md` with template + compliance + assets). No Skill is ever invoked as a work unit in the pipeline — every work unit is an agent dispatched via Task.
 
-**Historical note:** in v0.3.x, the four analysis skills and thesis-discipline were Skills loaded into the orchestrator's main context. Phase 2.5 session timing data showed this was the single biggest-time artificial bottleneck in the pipeline (~32 min sequential for the four analyses; +12 min for thesis-discipline full which was slowed further by main-context bloat). v0.4.0 converted all five to agents. The parallel dispatch at Stage 2 alone saved ~22 minutes per deep-dive; the context-isolation of thesis-discipline saved another ~5-8 minutes. Total speedup: ~42% on end-to-end wall-clock time.
+**Historical note:** in v0.3.x, the four analysis skills and thesis-discipline were Skills loaded into the orchestrator's main context. Phase 2.5 session timing data showed this was the single biggest-time artificial bottleneck in the pipeline (~32 min sequential for the four analyses; +12 min for thesis-discipline full which was slowed further by main-context bloat; the reconcile pass alone took 8 min on SNOW). v0.4.0 converted all five to agents — the parallel dispatch at Stage 2 saved ~22 minutes per deep-dive, the context-isolation of thesis-discipline another ~5-8 minutes (~42% total). That left Stage 1's single sequential deep-researcher (~20 min for 12 sources) as the dominant bottleneck, so v0.5.0 sharded it into four parallel fetch agents with disjoint origins, moved the ticker→CIK fail-fast into orchestrator pre-flight, and made the orchestrator the sole meta.json writer (shard results are merged once instead of read-modify-written after every fetch). v0.5.0 also stopped the report-writer from reading `base-styles.css`/`disclaimer.html` into context (they're spliced in via Bash post-composition) and made the compliance pass grep-first instead of re-scanning the full 60-150KB HTML in-context up to 3 times.
+
+## Reduced fetch plans (dormant modes)
+
+`/stockwiz` MODE=full fetches all 12 sources via the four shards. Future commands on the roadmap use reduced source sets — the orchestrating command decides the sources and passes an explicit `SOURCES` list to one or more `deep-researcher` shard dispatches (the agent itself has no mode logic):
+
+- **thesis** (5 sources): SEC EDGAR (core concepts only), Finviz, Stockanalysis, Yahoo, Google News RSS.
+- **compare** (4 per ticker): Finviz, Yahoo, Stockanalysis, Google News RSS; SEC only if not already fetched for the ticker today.
+- **revisit** (3): Finviz, Yahoo, Google News RSS — files prefixed `revisit-YYYYMMDD-`.
+- **bear** (6): the thesis set plus SWS (risks list is high-value bear input) and Reddit (retail sentiment as contrarian signal).
 
 ## Where things live
 
@@ -208,7 +228,7 @@ See [`session-workspace.md`](session-workspace.md) for the full filesystem contr
 
 - **Repo source** (`~/Projects/stockwiz/`) — read-only at runtime
   - `commands/` — user-invocable slash commands (2 currently, 6 planned)
-  - `agents/` — Task-delegated subagents (3)
+  - `agents/` — Task-delegated subagents (8)
   - `skills/` — Skill-tool-loaded instructions, each with a `SKILL.md` and optional `references/` + `assets/`
   - `docs/` — human-facing architecture and contracts (this file + session-workspace.md)
 
@@ -221,7 +241,7 @@ See [`session-workspace.md`](session-workspace.md) for the full filesystem contr
 
 ## Compliance pass — single enforcement point
 
-Every HTML report runs through a compliance pass before being written to disk. The pass is **centralized in exactly one place**: `agents/report-writer.md` Step 8, which loads `skills/report-generation/references/compliance-rules.md` and applies it.
+Every HTML report runs through a compliance pass before the draft is promoted to `report.html`. The pass is **centralized in exactly one place**: `agents/report-writer.md` Step 9, which applies `skills/report-generation/references/compliance-rules.md` grep-first — a canonical Bash grep locates candidate lines in the on-disk draft, the model judges only those lines against the exemptions, and applies targeted edits. The full HTML is never re-scanned in model context.
 
 The rule set has three classes:
 
@@ -237,13 +257,13 @@ The pre-filter guidance lives in `compliance-rules.md` under a "Pre-filter guida
 
 1. Write `skills/source-extraction/references/<source>.md` following the template set by existing references (`sec-edgar.md`, `finviz.md`, etc.). Document URL pattern, access method (curl or WebFetch), extraction targets, failure modes, and per-source rate limits.
 2. Add the source to the index table in `skills/source-extraction/SKILL.md` with its phase, tool, and keyless status.
-3. Add the source to the fetch plan in `agents/deep-researcher.md` Step 2 at the appropriate priority position. Update any per-source mechanics if the source needs special handling (cookies, cache, etc.).
+3. Add the source to a fetch shard: pick the shard whose origins and theme fit (or rebalance), update the shard-assignment table in `skills/source-extraction/SKILL.md` AND the shard prompt in `commands/stockwiz.md` Step 6, including that shard's fetch/WebSearch budget. Per-source mechanics (cookies, caches, etc.) live in the reference file only — `deep-researcher.md` deliberately doesn't duplicate them.
 4. If the source needs a persistent cache, document the schema in `docs/session-workspace.md`.
 5. If the source produces a new raw file slug, add it to the filesystem contract in `docs/session-workspace.md`.
 6. Update the analysis agent(s) under `agents/` that should consume the new source. The source exists in `raw/` but analysis agents won't read it unless their Inputs section says so explicitly.
-7. Update the orchestrator's deep-researcher Task prompt in `commands/stockwiz.md` if the total source count changes.
+7. Update the total source count wherever it appears (`commands/stockwiz.md`, `skills/source-extraction/SKILL.md`, this file).
 
-**Common trap**: adding a source to the reference files and index but forgetting to update the orchestrator prompt OR the analysis agents. The source gets fetched but nothing reads it. See the Phase 2.5 self-review for examples of this exact failure mode.
+**Common trap**: adding a source to the reference files and index but forgetting to update the orchestrator's shard prompt OR the analysis agents. The source gets fetched but nothing reads it (or is listed but never fetched). See the Phase 2.5 self-review for examples of this exact failure mode.
 
 ## How to add a new analysis agent
 
@@ -271,7 +291,6 @@ The pre-filter guidance lives in `compliance-rules.md` under a "Pre-filter guida
 
 ## Open questions and known risks
 
-- **Analysis skills in main context**: see decision rule section above. This is the biggest pending architectural change.
 - **No tests.** The entire verification strategy is manual smoke-testing via actual Claude Code runs. A lightweight `scripts/audit.sh` that checks for stale command references, YAML frontmatter validity, schema consistency, and dangling file references would catch many drift bugs before they ship.
 - **Commit-vs-runtime drift.** Every phase has added surface. A quarterly "cleanup commit" that deletes dead scaffolding and updates stale documentation is probably healthy hygiene.
 - **Non-deterministic key insight selection.** The TL;DR key insight is deliberately curated by the LLM rather than picked by a deterministic formula. This trades reproducibility for context-aware insight quality. Documented in `deep-dive-template.md`.

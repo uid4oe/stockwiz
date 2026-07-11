@@ -1,7 +1,7 @@
 ---
 name: source-extraction
 description: This skill should be used when fetching raw equity data from public web sources. Provides URL patterns, per-source extraction targets, access methods (WebFetch vs Bash+curl), fallback behavior, rate-limiting guidance, and failure-mode detection for the stockwiz source set. Do not fetch equity data without consulting this skill first.
-version: 0.4.0
+version: 0.5.0
 ---
 
 # source-extraction
@@ -22,7 +22,7 @@ The rule: **use whichever the source's reference file prescribes.** Do not secon
 
 1. **LLM-based extraction, not DOM selectors.** Whether via WebFetch or via curl+`lynx -dump` + a Read pass, extraction is always prompted in plain language asking for specific fields. No CSS selectors, no regexes over raw HTML — ask for what you want and let the model read the page like a human. Layout-resilient.
 
-2. **Politeness is not optional.** Wait at least **1500ms** between any two fetches (WebFetch OR curl; they share the budget). Configurable via `~/.claude/stockwiz/config.json`'s `ratelimit_ms`. Use `Bash sleep 1.5` when in doubt. Do not spin-wait or poll.
+2. **Politeness is not optional.** Within a fetch shard, wait at least **1500ms** between any two fetches (WebFetch OR curl; they share the budget). Configurable via `~/.claude/stockwiz/config.json`'s `ratelimit_ms`. Use `Bash sleep 1.5` when in doubt. Do not spin-wait or poll. Shards may run concurrently because their sources hit **disjoint origins** — the delay protects each origin, and each origin lives in exactly one shard.
 
 3. **Fail fast, move on.** A single source failing must never block a deep-dive (with the single exception of SEC EDGAR — see below). Mark the source as `failed` in `meta.json.sources`, record the reason, and continue. Maximum one retry per source per run.
 
@@ -36,13 +36,13 @@ The rule: **use whichever the source's reference file prescribes.** Do not secon
 
 ## Rate-limit envelope
 
-A full deep-dive (MODE=full) should fit within this envelope:
-- **≤35 total fetches** (WebFetch + curl, combined hard cap — abort with error if exceeded)
-- **≤4 total WebSearch calls** (used to resolve canonical URLs for Simply Wall St + Macrotrends, plus 1 X.com institutional-commentary search; optional Google News company-name fallback shares this budget)
-- **90–150 seconds** of wall-clock time
-- **1500ms** minimum delay between fetches
+A full deep-dive fetches 12 sources via **four concurrent fetch shards** (see `commands/stockwiz.md` Step 6 for the shard layout and per-shard budgets). Each shard fits within this envelope:
 
-The budget is wide enough to cover 12 sources and some sources use multiple pages (SEC 6-7 API calls, Macrotrends 4 pages, Stockanalysis 3 pages).
+- **≤12 fetches per shard** (WebFetch + curl combined; the orchestrator's shard prompt may set a lower cap)
+- **WebSearch per the shard's stated budget** — shard A: 0, shard B: ≤1 (Macrotrends slug, cache-miss only), shard C: ≤2 (SWS URL resolution + optional Google News company-name fallback), shard D: ≤1 (X.com)
+- **1500ms** minimum delay between fetches within the shard
+
+Happy-path total across all shards: ~29–33 fetches + ≤4 WebSearch. Stage 1 wall-clock is `max(shard A..D)`, not the sum. The budget covers multi-page sources (SEC 6 API calls with the tickers cache pre-resolved, Macrotrends 4 pages, Stockanalysis 3 pages).
 
 **Per-source call budget (happy path):**
 | Source | Calls |
@@ -61,9 +61,9 @@ The budget is wide enough to cover 12 sources and some sources use multiple page
 | X.com institutional commentary | 1 WebSearch |
 | **Total happy path** | **~29-33 fetches + 3 WebSearch** |
 
-A reduced mode (MODE=thesis, MODE=compare, MODE=revisit, MODE=bear) uses a smaller source subset — see deep-researcher.md Step 2 for which modes include which sources.
+Reduced fetch plans for future commands (thesis / compare / revisit / bear) use smaller source subsets — see `docs/architecture.md` § Reduced fetch plans. The orchestrating command passes an explicit `SOURCES` list to each shard dispatch.
 
-Degraded run: if **fewer than 3 sources succeed** in the first **10 attempts**, bail early. Set `meta.json.status = "degraded"` or `"failed"` and return to the caller. Don't waste the remaining budget on what is clearly a blocked/broken environment.
+Degraded run: the orchestrator applies the fewer-than-3-successful-sources gate after all shards return and aborts the run with reason `insufficient-sources`. Within a shard, fail fast per source and never spend retries on Cloudflare challenges or 403s — don't waste budget on a clearly blocked environment.
 
 ## Source index
 
@@ -86,28 +86,20 @@ The source set currently wires **12 sources**. TradingView remains deferred beca
 | 13 | Barchart insider trades | [`references/barchart.md`](references/barchart.md) | best-effort | **WebFetch** | yes |
 | 14 | X.com institutional commentary | [`references/x-com.md`](references/x-com.md) | best-effort, whitelist-gated | **WebSearch** (`site:x.com`) | yes |
 
-## Fetch order for MODE=full
+## Shard assignment (MODE=full)
 
-Fetch in this order. Earlier sources are more reliable and give you enough to finish a minimum analysis even if later sources fail:
+The orchestrator splits the 12 sources into four shards with **disjoint origins** and dispatches them in parallel. Within a shard, fetch in the listed order — more reliable sources first:
 
-1. **SEC EDGAR** (curl + JSON) — always try first. **Fatal if it fails.**
-2. **Finviz** (WebFetch) — single page, most reliable scraped source, cheap confirmation the pipeline works
-3. **Stockanalysis.com** (curl + lynx) — 5Y financials, structural backfill for Yahoo
-4. **Macrotrends** (curl + lynx) — 10Y+ deep history, cycle context
-5. **Yahoo Finance** (curl + JSON API) — **best-effort**, usually rate-limited; fundamentals/statistics cross-check when it succeeds
-6. **Google News RSS + Google Finance** (curl + RSS) — **news layer**, publisher distribution
-7. **Simply Wall Street** (WebSearch + curl + lynx) — snowflake + risks + narrative + competitor context
-8. **Seeking Alpha** (curl + lynx) — Quant Rating + Factor Grades (public sections only)
-9. **Zacks** (curl + lynx) — Zacks Rank + Style Scores, **best-effort, fails fast on Cloudflare**
-10. **Reddit** (curl + .json) — retail sentiment as contrarian signal, weight 0.2
-11. **Barchart insider trades** (WebFetch) — 3/6/12-month buy/sell directional time series, **best-effort**
-12. **X.com institutional commentary** (WebSearch + whitelist gate) — verified-handle wires/journalists/sell-side commentary, **best-effort, whitelist-gated**
+| Shard | Sources, in order | Notes |
+|---|---|---|
+| **A — ground truth + snapshot** | SEC EDGAR (curl + JSON APIs), Finviz (WebFetch), Barchart insider trades (WebFetch) | SEC failure is fatal — skip the rest of the shard and return immediately. Barchart is best-effort. |
+| **B — financial history** | Stockanalysis.com (curl + lynx, 3 pages), Macrotrends (slug cache + curl + lynx, 4 pages) | Macrotrends uses WebSearch only on slug-cache miss. |
+| **C — news + vendor views** | Google Finance + News RSS (curl + RSS + lynx), Simply Wall Street (WebSearch + curl + lynx), Seeking Alpha (curl + lynx, public only), Zacks (curl + lynx) | Zacks is best-effort — fail fast on Cloudflare, zero retries. |
+| **D — market chatter** | Yahoo Finance (curl + cookies + JSON API), Reddit (curl + .json, 3 subs), X.com institutional commentary (WebSearch, whitelist-gated) | Yahoo and X.com are best-effort; empty X.com `quotes: []` is `status: ok`. |
 
 **FRED is never fetched by `deep-researcher`.** It is only called by the `macro-context` skill when a specific series is needed to contextualize a thesis.
 
-**TradingView is deferred to (roadmap)** because it requires headless Chrome to render its client-side data. Its technical rating, analyst ideas, and community comments would be valuable but are unreachable via curl alone.
-
-The order puts SEC and Finviz first (reliable), then the structured-data sources (Stockanalysis, Macrotrends, Yahoo), then the news layer (Google News RSS + Google Finance), then the narrative sources (SWS, SA), then the best-effort sources (Zacks, Reddit). If fetching stops early due to the 35-call cap, we still have the most valuable data.
+**TradingView is deferred (roadmap)** because it requires headless Chrome to render its client-side data. Its technical rating, analyst ideas, and community comments would be valuable but are unreachable via curl alone.
 
 ## Failure-mode detection
 
@@ -167,7 +159,7 @@ Reddit r/stocks + r/wallstreetbets + r/investing
 **Long-run cycle context (10Y+ history):**
 Macrotrends (primary, 10-20Y) → Stockanalysis (5Y fallback)
 
-Use the fallback chain only when the primary source's reference file tells you to. Don't try every source in the chain as a routine — that blows the fetch budget. The orchestrator fetches all 6 sources in order; the chains matter for downstream analyses when they need a specific field and the primary source was marked failed.
+Use the fallback chain only when the primary source's reference file tells you to. Don't try every source in the chain as a routine — that blows the fetch budget. The shards fetch all 12 sources; the chains matter for downstream analyses when they need a specific field and the primary source was marked failed.
 
 ## File output convention
 

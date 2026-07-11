@@ -40,7 +40,7 @@ Open the resulting `~/.claude/stockwiz/sessions/NVDA-*/report.html` in any brows
 | `/stockwiz-setup` | One-time onboarding; creates data dirs, shows disclaimer |
 | `/stockwiz <ticker> [--horizon=long\|swing]` | Full deep-dive pipeline, produces HTML report |
 
-That's the current command surface. After setup, run `/stockwiz NVDA` (or any US ticker) and stockwiz will fetch 12 sources, dispatch four analysis agents in parallel (fundamental, sentiment, peer-comparison, risk), synthesize a disciplined bull/base/bear thesis, run an isolated adversarial stress test via the devils-advocate agent, reconcile the findings, and emit a self-contained HTML research brief into `~/.claude/stockwiz/sessions/<TICKER>-<timestamp>/report.html`. You can then ask follow-up questions in the same chat — stockwiz will answer from the durable session workspace without re-fetching.
+That's the current command surface. After setup, run `/stockwiz NVDA` (or any US ticker) and stockwiz will fetch 12 sources via four parallel fetch shards, dispatch four analysis agents in parallel (fundamental, sentiment, peer-comparison, risk), synthesize a disciplined bull/base/bear thesis, run an isolated adversarial stress test via the devils-advocate agent, reconcile the findings, and emit a self-contained HTML research brief into `~/.claude/stockwiz/sessions/<TICKER>-<timestamp>/report.html`. You can then ask follow-up questions in the same chat — stockwiz will answer from the durable session workspace without re-fetching.
 
 ## Roadmap
 
@@ -59,6 +59,7 @@ Other roadmap items:
 - **FRED macro-context skill** — adds rates / commodity / macro series from the St. Louis Fed API
 - **SEC 10-K prose parsing** — currently we extract only XBRL structured facts, not the MD&A / Item 1A narrative
 - ~~**Parallel analysis skills**~~ — **✓ delivered in 0.4.0**: the four analysis units were converted from Skills (loaded into main context, sequential) to agents (dispatched concurrently via Task in isolated contexts). Observed impact is deferred until a full run on 0.4.0 confirms the projected ~42% wall-clock speedup.
+- ~~**Parallel source fetching**~~ — **✓ delivered in 0.5.0**: Stage 1's single sequential deep-researcher was sharded into four parallel fetch agents with disjoint origins; the ticker→CIK fail-fast moved to orchestrator pre-flight. Projected Stage 1 wall-clock: ~20 → ~6-8 minutes.
 
 ## Data sources
 

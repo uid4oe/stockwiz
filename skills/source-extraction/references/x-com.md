@@ -2,7 +2,7 @@
 
 **Status:** active. Best-effort source — surfaces near-real-time commentary from *verified institutional handles only*. A whitelist gate enforces this; non-whitelisted handles are discarded without reading content.
 **Keyless.** Accessed via Google `WebSearch` with `site:x.com`, not via the X.com API (which requires paid auth).
-**Rate policy:** 1 WebSearch call per ticker. Counts against the global ≤3 WebSearch budget — see `source-extraction/SKILL.md`.
+**Rate policy:** 1 WebSearch call per ticker — this is fetch shard D's entire WebSearch budget (see `source-extraction/SKILL.md` § Rate-limit envelope).
 
 <!-- review-by 2026-11-01 — handles deprecate, accounts go private, journalists change jobs; review the whitelist every 6 months. -->
 
@@ -105,7 +105,7 @@ Write to `raw/x-com-commentary.md`.
 
 ## Calls
 
-1 WebSearch call (counted against the global ≤3 WebSearch budget that source-extraction shares with Macrotrends and SWS slug resolution). Zero WebFetch calls.
+1 WebSearch call — fetch shard D's entire WebSearch budget (Macrotrends and SWS URL resolution have their own budgets in shards B and C). Zero WebFetch calls.
 
 ## A note on compliance
 

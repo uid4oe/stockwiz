@@ -35,22 +35,27 @@ All matches are **case-insensitive with word boundaries** (regex `\b...\b`).
 | 19 | `free money` | `asymmetric return scenario` | |
 | 20 | `easy money` | `low-friction scenario` | |
 
-## Pass procedure
+## Pass procedure (grep-first)
 
-The `report-writer` agent runs this pass after composing the HTML string and before writing to disk:
+The `report-writer` agent runs this pass on `SESSION_DIR/report-draft.html` after composing and splicing assets, and promotes the draft to `report.html` only when the pass is clean. The draft is 60–150KB — **never load or re-scan the full HTML in model context**. Locate candidates with grep; inspect only the matching lines.
 
-1. Load this file.
-2. Load the full HTML string.
-3. For each rule in the table:
-   a. Search the HTML with a case-insensitive, word-boundary regex.
-   b. **Skip any match that is inside a `<q>...</q>` tag.** Quoted source text is exempt (the quote tags make the attribution clear).
-   c. Skip matches inside URL strings (`https://` through the next space or quote).
-   d. If the rule is **STRIP SENTENCE**: remove the entire enclosing sentence and append the stripped sentence to a log list.
-   e. Otherwise: apply the rewrite, preserving surrounding punctuation.
-4. After all rules have been applied, **re-scan** the HTML for any remaining banned phrases outside `<q>` tags.
-5. Loop (apply → re-scan) up to **3 times** total.
-6. If after 3 iterations any banned phrase still remains outside `<q>`, **ABORT** the report generation and return an error. This indicates the report content is systematically out of compliance and the issue needs to be addressed upstream (in the `thesis-discipline` agent or one of the four analysis agents).
-7. Log every rewrite applied and every stripped sentence to `meta.json.stages` under the `report-writer` stage as an `adjustments` array.
+1. Run the **canonical candidate grep** via Bash:
+
+   ```bash
+   grep -inE "\b(should (buy|sell)|will (return|gain)|to the moon|next (amazon|nvidia)|no risk|can't lose|hot (stock|pick)|(free|easy) money|buy|sell|recommend|recommendation|guarantee|guaranteed|risk-free|undervalued|overvalued|moonshot|bagger|safe|pump|dump)\b" "$SESSION_DIR/report-draft.html"
+   ```
+
+   The grep is deliberately over-inclusive: it also surfaces exempt usages (`buy-side`, `safe harbor`, labels inside `<q>` tags). Filtering those out is step 2's job — detection and judgment are separate. **When extending the banned table, extend this alternation in the same edit.**
+
+2. For each matching line in the grep output, judge the hit against the exemptions:
+   - **Skip matches inside `<q>...</q>` tags.** Quoted source text is exempt (the quote tags make the attribution clear).
+   - Skip matches inside HTML attributes (`alt=""`, `title=""`, `href=""`), URL strings, `<!-- comments -->`, and `<code>`/`<pre>` blocks.
+   - Skip `-side` compounds and the other rows of the exemption table below.
+   - Skip anything inside the `stockwiz-disclaimer` block.
+3. For each real violation, apply the rewrite from the table (in table order — compound phrases before the shorter phrases that are substrings of them) as a **targeted Edit** on the draft, preserving surrounding punctuation. If the rule is **STRIP SENTENCE**: remove the entire enclosing sentence and append the stripped sentence to a log list.
+4. Re-run the canonical grep. Loop (grep → judge → targeted edits) up to **3 times** total.
+5. If after 3 iterations any banned phrase still remains outside the exemptions, **ABORT** the report generation: delete the draft and return an error. This indicates the report content is systematically out of compliance and the issue needs to be addressed upstream (in the `thesis-discipline` agent or one of the four analysis agents).
+6. Report every rewrite applied and every stripped sentence in the report-writer's return summary; the orchestrator records them as `adjustments` / `strippedSentences` on the report-writer stage entry in meta.json.
 
 ## What about quoted source material?
 
@@ -104,7 +109,7 @@ This section is the **canonical reference** for skills and subagents that write 
 
 ### The principle
 
-The compliance pass (run by `report-writer` Step 8 before writing `report.html`) rewrites banned imperative language and wraps quoted source text in `<q>` tags. You, the skill author, should **pre-filter** your output so the compliance pass has little to do. Pre-filtering is not a safety net — the compliance pass is the safety net. Pre-filtering is an efficiency and clarity concern: every phrase that gets rewritten by the compliance pass is a phrase whose original wording was lost, and every iteration of the pass burns tokens.
+The compliance pass (run by `report-writer` Step 9 before promoting the draft to `report.html`) rewrites banned imperative language and wraps quoted source text in `<q>` tags. You, the skill author, should **pre-filter** your output so the compliance pass has little to do. Pre-filtering is not a safety net — the compliance pass is the safety net. Pre-filtering is an efficiency and clarity concern: every phrase that gets rewritten by the compliance pass is a phrase whose original wording was lost, and every iteration of the pass burns tokens.
 
 ### Phrases to avoid generating
 

@@ -172,6 +172,6 @@ Write to `raw/zacks-snapshot.md`.
 
 ## Strategic note
 
-Because Zacks is unreliable, stockwiz does not depend on it for any critical path. Its value is additive: when Zacks works, we get a unique proprietary rating to compare against SA Quant and Finviz Analyst Recom. When Zacks doesn't work, the thesis can still be built from the other 8 sources with no material loss.
+Because Zacks is unreliable, stockwiz does not depend on it for any critical path. Its value is additive: when Zacks works, we get a unique proprietary rating to compare against SA Quant and Finviz Analyst Recom. When Zacks doesn't work, the thesis can still be built from the other 11 sources with no material loss.
 
-The deep-researcher agent should log Zacks success/failure rate in `_sanity.md` so users can tell over time whether Zacks is consistently unreachable in their environment.
+The fetch shard should note Zacks success/failure in its return summary; the orchestrator records it in `raw/_sanity.md` if noteworthy, so users can tell over time whether Zacks is consistently unreachable in their environment.

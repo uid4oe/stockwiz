@@ -37,11 +37,14 @@ The frontend-design skill is provided by Claude Code globally. Reference its pri
 
 You are building a single-page document, not an app. The frontend-design skill has strong opinions about hero treatments and display typography — apply those to the hero section. For everything else, lean on the base CSS.
 
-### Step 3 — Load assets
+### Step 3 — Locate assets (do NOT Read them)
 
-Read:
-- `${CLAUDE_PLUGIN_ROOT}/skills/report-generation/assets/base-styles.css` — inline this into the `<style>` block
-- `${CLAUDE_PLUGIN_ROOT}/skills/report-generation/assets/disclaimer.html` — verbatim, for the final footer
+Two assets are spliced into the HTML **after** composition, via a single Bash call in Step 8. Never Read them into your context — together they are ~16KB, and re-emitting them by hand wastes tokens and risks transcription drift:
+
+- `${CLAUDE_PLUGIN_ROOT}/skills/report-generation/assets/base-styles.css` — injected where you place the `/*@@BASE_STYLES@@*/` marker inside the `<style>` block
+- `${CLAUDE_PLUGIN_ROOT}/skills/report-generation/assets/disclaimer.html` — injected where you place the `<!--@@DISCLAIMER@@-->` marker as the last element before `</body>`
+
+Write any report-specific CSS overrides (accent color, hero treatment) yourself **after** the marker inside the same `<style>` block, so they cascade over the base styles.
 
 ### Step 4 — Read session content
 
@@ -120,7 +123,7 @@ Example:
 
 Follow the v0.3 template in `deep-dive-template.md`. Section order is:
 
-1. `<!DOCTYPE html>` preamble with `<head>`, `<title>`, optional Google Fonts `<link>`, inline `<style>` (base-styles.css)
+1. `<!DOCTYPE html>` preamble with `<head>`, `<title>`, optional Google Fonts `<link>`, inline `<style>` opening with the `/*@@BASE_STYLES@@*/` marker followed by your report-specific overrides
 2. `<body><div class="stockwiz-container">`
 
 **Above the fold (always visible):**
@@ -144,7 +147,7 @@ Follow the v0.3 template in `deep-dive-template.md`. Section order is:
 
 **Always visible at bottom:**
 
-16. **Disclaimer** — load verbatim from `${CLAUDE_PLUGIN_ROOT}/skills/report-generation/assets/disclaimer.html`, substitute `{version}` (from plugin.json), `{timestamp}` (ISO now), `{session-id}` (basename of SESSION_DIR). **NOT inside a `<details>` — always visible.**
+16. **Disclaimer** — emit the `<!--@@DISCLAIMER@@-->` marker as the last element before `</body>`. The Step 8 splice replaces it with `assets/disclaimer.html` verbatim and substitutes `{version}` / `{timestamp}` / `{session-id}`. **NOT inside a `<details>` — always visible.**
 
 ### Step 6.5 — Compute summary abstracts for each `<details>` section
 
@@ -191,33 +194,50 @@ Permutations (index → order):
 
 Same ticker always gets the same order; different tickers differ. Anchoring is neutralized.
 
-### Step 8 — Compliance pass (MANDATORY, before writing)
+### Step 8 — Write the draft and splice assets
 
-Before writing the file to disk, run the compliance pass per `compliance-rules.md`:
+1. Write your composed HTML — containing both `@@` markers — to `SESSION_DIR/report-draft.html`. Composing to a draft path guarantees a non-compliant or partial report is never left at `report.html`.
 
-1. For each banned phrase in the table (applied in table order — longest/compound phrases first):
-   - Search your HTML string case-insensitive with word boundaries.
-   - **Skip matches inside `<q>...</q>` tags.** Quoted source text is exempt.
-   - **Skip matches inside HTML attributes** (`alt=""`, `title=""`, `href=""`), inside URLs in `<a href="...">`, inside `<!-- comments -->`, and inside `<code>` or `<pre>` blocks.
-   - Apply the rewrite. For "strip sentence" rules, remove the enclosing sentence and append the stripped sentence to a local log.
-2. After applying all rules, re-scan the full HTML for any remaining banned phrases outside `<q>`.
-3. If any remain, repeat step 1. Loop at most **3 times total**.
-4. If after 3 iterations any banned phrase still exists outside `<q>`, **ABORT**. Return an error summary to the caller: `compliance pass failed after 3 iterations; banned phrases still present: [list]`. Do NOT write a non-compliant report to disk.
-5. Log every rewrite and every stripped sentence to `meta.json.stages`: read the current meta.json, find the stage entry for your run (or append one), add `adjustments: [...]` and `strippedSentences: [...]`, write it back.
+2. Splice the assets with one Bash call (adapt the two absolute paths):
 
-### Step 9 — Write the file
+   ```bash
+   python3 - <<'EOF'
+   import json, datetime, os
+   plugin = "<absolute CLAUDE_PLUGIN_ROOT>"
+   session = "<absolute SESSION_DIR>"
+   html = open(f"{session}/report-draft.html").read()
+   css = open(f"{plugin}/skills/report-generation/assets/base-styles.css").read()
+   disc = open(f"{plugin}/skills/report-generation/assets/disclaimer.html").read()
+   version = json.load(open(f"{plugin}/.claude-plugin/plugin.json"))["version"]
+   disc = (disc.replace("{version}", version)
+               .replace("{timestamp}", datetime.datetime.now().astimezone().isoformat(timespec="seconds"))
+               .replace("{session-id}", os.path.basename(session)))
+   html = html.replace("/*@@BASE_STYLES@@*/", css).replace("<!--@@DISCLAIMER@@-->", disc)
+   open(f"{session}/report-draft.html", "w").write(html)
+   EOF
+   ```
 
-Write to `SESSION_DIR/report.html`.
+3. Verify the splice via Bash: `grep -c '@@BASE_STYLES@@\|@@DISCLAIMER@@'` on the draft must return 0 remaining markers, and `grep -c 'stockwiz-disclaimer'` must be ≥1. If either fails, fix the markers and re-splice.
 
-### Step 10 — Verify
+### Step 9 — Compliance pass (MANDATORY, grep-first, before promotion)
 
-After writing, run sanity checks via Bash:
+Do NOT re-read or re-scan the whole HTML in your context — the draft is 60–150KB. Locate candidates with grep and inspect only the matching lines:
+
+1. Run the **canonical candidate grep** from `compliance-rules.md` § Pass procedure against `report-draft.html`. It returns line numbers + lines for every potential banned-phrase hit.
+2. For each matching line, judge it against the exemption rules (inside `<q>...</q>`, HTML attributes/URLs/comments, `<code>`/`<pre>`, `-side` compounds, the `stockwiz-disclaimer` block). For real violations, apply the rewrite from the table via a targeted `Edit` on the draft; for "strip sentence" rules, remove the enclosing sentence and append it to a local log.
+3. Re-run the grep. Loop (grep → targeted edits) at most **3 times total**.
+4. If violations remain outside exemptions after 3 iterations, **ABORT**: delete `report-draft.html` and return an error summary to the caller: `compliance pass failed after 3 iterations; banned phrases still present: [list]`. Never promote a non-compliant draft.
+5. Keep a local log of every rewrite (`original → replacement`) and every stripped sentence, and report both lists in your return summary. The orchestrator records them as `adjustments` / `strippedSentences` on your stage entry in meta.json — you never write meta.json yourself.
+
+### Step 10 — Promote and verify
+
+Promote the clean draft: `mv "$SESSION_DIR/report-draft.html" "$SESSION_DIR/report.html"`. Then run sanity checks via Bash:
 
 - `wc -c SESSION_DIR/report.html` — size should be between **10KB and 500KB**. Under 10KB means sections are missing; over 500KB means binary bloat leaked in.
 - `head -c 100 SESSION_DIR/report.html` — should start with `<!DOCTYPE html>`.
 - `tail -c 100 SESSION_DIR/report.html` — should end with `</html>` (or very close).
 - `grep -c 'stockwiz-disclaimer' SESSION_DIR/report.html` — should be ≥1 (the footer class is present).
-- `grep -iE '\b(buy|sell|recommend|guaranteed|risk-free)\b' SESSION_DIR/report.html` — scan for compliance leaks. Hits outside `<q>` tags indicate a compliance failure. If you find any, delete the file and return an error.
+- `grep -iE '\b(buy|sell|recommend|guaranteed|risk-free)\b' SESSION_DIR/report.html` — final spot-check for compliance leaks. Hits outside `<q>` tags indicate a compliance failure. If you find any, delete the file and return an error.
 
 ### Step 11 — Return the summary
 
@@ -239,6 +259,8 @@ Return to the caller:
 **Sections placeholder.** {list, typically empty}
 
 **Compliance.** {N} rewrites applied, {M} sentences stripped, {K} iterations
+- rewrites: {list, `original → replacement` each}
+- stripped: {list of stripped sentences, abbreviated}
 **Sanity checks.** file size {n} bytes, markers valid, compliance grep clean
 ```
 
@@ -247,11 +269,12 @@ Return to the caller:
 1. **Self-contained HTML only.** No `<script src=...>`, no `<link rel="stylesheet" href="http...">` except optional Google Fonts, no `<img src="http...">`. Use inline SVG or `data:` URLs for any graphics.
 2. **Every numerical claim cited.** If you cannot find a source in the session workspace, do not include the number. Write "undisclosed" or "not available in fetched sources".
 3. **Bull and bear equal visual weight.** Same width, font, color, intensity. No emoji. No arrows. No traffic-light coloring. The case order is deterministically shuffled.
-4. **Disclaimer footer is the last element.** Loaded verbatim from `assets/disclaimer.html`. Your CSS cannot `display: none` it, cannot make its font smaller than the body text, cannot hide it behind a collapsible.
+4. **Disclaimer footer is the last element.** Spliced verbatim from `assets/disclaimer.html` by the Step 8 splice. Your CSS cannot `display: none` it, cannot make its font smaller than the body text, cannot hide it behind a collapsible.
 5. **Never re-fetch.** You don't have WebFetch in your tools. If a number isn't in the session workspace, it doesn't go in the report.
 6. **Never modify `raw/` files.** They're the audit trail.
-7. **Never write a non-compliant report.** If the compliance pass can't clean the output after 3 loops, abort with an error. Do NOT write a degraded file and hope nobody notices.
+7. **Never promote a non-compliant report.** If the compliance pass can't clean the draft after 3 loops, delete the draft and abort with an error. Do NOT promote a degraded file and hope nobody notices.
 8. **Never call Task.** You are a leaf in the subagent graph. If you need adversarial critique, that's devils-advocate's job, and it runs before you.
+9. **Never write to `meta.json`.** You read it for session facts; the orchestrator records your stage entry (including your compliance log) from your return summary.
 
 ## What success looks like
 

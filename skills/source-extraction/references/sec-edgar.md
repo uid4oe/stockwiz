@@ -26,7 +26,9 @@ Instead of scraping the 10-K HTML page (which is ~10MB and fragile), use SEC's s
 
 ## Step-by-step fetch plan
 
-### Step 1 — Resolve ticker → CIK
+### Step 1 — Resolve ticker → CIK (runs in the orchestrator's pre-flight)
+
+**As of 0.5.0 this step is performed by the `/stockwiz` orchestrator's pre-flight (Step 4.5), before any fetch shard is dispatched** — a missing ticker fails fast without spending any fetch budget. The fetch shard receives `CIK_PADDED` in its Task prompt and starts at Step 2. The mechanics below remain the canonical spec for the lookup.
 
 SEC needs a 10-digit zero-padded CIK (Central Index Key) to identify a company. We map ticker → CIK from SEC's published index:
 
@@ -73,7 +75,7 @@ for v in d.values():
 CIK_PADDED=$(printf "%010d" "$CIK")
 ```
 
-If no match found, the ticker is not a US filer (or is delisted, or typo). Mark SEC EDGAR as `failed` with reason `ticker-not-found-at-sec`. The orchestrator's Step 6 will treat this as fatal — correctly.
+If no match found, the ticker is not a US filer (or is delisted, or typo). The orchestrator aborts with reason `ticker-not-found-at-sec` — fatal, correctly, and before any shard is dispatched.
 
 ### Step 2 — Fetch filing history (submissions API)
 
@@ -223,10 +225,10 @@ On any failure that prevents the submissions API from returning data, mark SEC E
 
 ## Calls
 
-- First run on a given machine: 1 (tickers) + 1 (submissions) + 5 (concepts) = **7 curl calls**
-- Subsequent runs (tickers cached): 1 (submissions) + 5 (concepts) = **6 curl calls**
+- Orchestrator pre-flight: 1 curl for `company_tickers.json` only when the cache is missing or >30 days old.
+- Fetch shard A: 1 (submissions) + 5 (concepts) = **6 curl calls** (the CIK arrives pre-resolved).
 
-Both fit comfortably within the 35-fetch hard cap.
+Fits comfortably within shard A's fetch budget.
 
 ## Slug
 

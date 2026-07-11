@@ -10,7 +10,7 @@ tools: Read, Write, Grep, Bash
 
 The structured "numbers" agent. Given a session workspace, read the raw files that contain fundamental data and produce a disciplined fundamental analysis that downstream will feed into `thesis-discipline`.
 
-You run in an **isolated context**. You do NOT see the orchestrator's accumulated state, you do NOT see the other three analysis agents' in-flight work, and your output is exactly one file: `SESSION_DIR/analysis/fundamental.md`. This isolation is deliberate — it keeps your context small (so inference is fast), prevents cross-contamination between the four parallel analysis agents, and gives the thesis-discipline stage clean inputs to synthesize from.
+You run in an **isolated context**. You do NOT see the orchestrator's accumulated state, you do NOT see the other three analysis agents' in-flight work, and your output is exactly one file: `SESSION_DIR/analysis/fundamental.md`. The isolation keeps your context small, prevents cross-contamination between the four parallel analysis agents, and gives the thesis-discipline stage clean inputs to synthesize from.
 
 ## Input you will receive
 

@@ -2,6 +2,30 @@
 
 All notable changes to stockwiz are documented in this file.
 
+## [0.5.0] — 2026-07-12
+
+### Stage 1 fetch sharding + report-writer efficiency — speed and token-usage release
+
+A static analysis of the pipeline post-0.4.0 found the remaining costs concentrated in Stage 1 (the single sequential deep-researcher, ~20 of the ~45 total minutes) and in the report-writer's context habits (reading assets only to re-emit them; re-scanning the full HTML in-context for compliance). Projected net effect: **~45 → ~25-30 min wall-clock per deep-dive, per-run token usage down ~25-40%.**
+
+**Stage 1 parallel fetch shards** (`commands/stockwiz.md` Step 6, `agents/deep-researcher.md`):
+
+- The 12 sources are split into four shards with **disjoint origins** — A: SEC + Finviz + Barchart; B: Stockanalysis + Macrotrends; C: Google News/Finance + SWS + Seeking Alpha + Zacks; D: Yahoo + Reddit + X.com — dispatched as four concurrent `deep-researcher` instances in one message, mirroring the Stage 2 pattern. The 1500ms politeness delay is preserved *within* each shard; since each origin lives in exactly one shard, per-origin politeness is unchanged. Stage 1 wall-clock becomes `max(A..D)` ≈ 6-8 min instead of the ~20-min sum.
+- `deep-researcher` is now a **parameterized shard agent**: the caller passes an explicit `SOURCES` list, and the agent reads only its own sources' reference files (~4× smaller context per instance). The duplicated "source-specific mechanics" section is gone — reference files are the single source of truth. Per-shard budgets (≤12 fetches; WebSearch A:0 / B:≤1 / C:≤2 / D:≤1) replace the global 35-fetch/3-WebSearch caps, which also resolves the 0.4.2 drift where SKILL.md said ≤4 WebSearch while deep-researcher said ≤3.
+- **Orchestrator pre-flight** (new Step 4.5): prerequisites (curl/jq-or-python3/lynx) and the ticker→CIK lookup now run locally against the SEC tickers cache before any dispatch — `ticker-not-found-at-sec` fails fast without spending fetch budget.
+- **meta.json now has exactly one writer: the orchestrator.** Shards return compact per-source statuses + key facts; the orchestrator merges them in one write (previously deep-researcher read-modify-wrote meta.json after every fetch, 12×/run) and composes `raw/_sanity.md` from the returned key facts (the cross-source sanity check spans shards). The report-writer's compliance log likewise travels via its return summary instead of a direct meta.json write. `meta.json.sources` entries no longer duplicate the fetched URL — it lives in the raw file frontmatter.
+
+**report-writer efficiency** (`agents/report-writer.md`, `skills/report-generation/*`):
+
+- **Asset splice:** `base-styles.css` (15KB) and `disclaimer.html` are no longer Read into context and re-emitted by hand. The agent composes with `/*@@BASE_STYLES@@*/` and `<!--@@DISCLAIMER@@-->` markers; a single Bash python3 splice injects both files byte-for-byte and substitutes `{version}`/`{timestamp}`/`{session-id}`. Kills ~8k duplicated tokens per run and the CSS transcription-error risk.
+- **Grep-first compliance pass:** the agent composes to `report-draft.html`, locates candidate violations with a canonical grep (now specified in `compliance-rules.md` § Pass procedure), judges only the matching lines against the exemptions, applies targeted Edits, and promotes the clean draft via `mv`. Same 3-iteration abort semantics; a non-compliant or partial file can never sit at `report.html`. Replaces up to 3 full in-context re-scans of 60-150KB HTML.
+
+**Prompt diet + drift fixes:**
+
+- `commands/stockwiz.md` trimmed ~478 → ~330 lines; changelog-style narration ("v0.4.0 architectural note", "Why NOT to sequentialize", the long "What success looks like") moved to `docs/architecture.md`'s historical note or deleted. Agent files lose their "previously took N minutes" history.
+- Dormant MODE→source-set tables (thesis/compare/revisit/bear) moved from `deep-researcher.md` to `docs/architecture.md` § Reduced fetch plans — the agent has no mode logic anymore; callers pass explicit source lists.
+- Drift fixes: `source-extraction/SKILL.md`'s fictional "90-150 seconds wall-clock" envelope replaced with per-shard budgets; `report-generation/SKILL.md` § Scope no longer describes the retired walking skeleton; `architecture.md` agent count (3 → 8) and already-shipped "pending change" note; `session-workspace.md` stale "stages are sequential (not parallel)" claim and `commandVersion` example; `x-com.md` global-WebSearch-budget mentions.
+
 ## [0.4.2] — 2026-05-01
 
 ### Two new Stage 1 sources — Barchart insider directional + X.com whitelisted institutional commentary

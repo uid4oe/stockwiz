@@ -45,7 +45,10 @@ Target size for the above-the-fold block: ~700-800px of visible content on a 144
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>stockwiz — {TICKER} — Research Brief</title>
   <style>
-    /* inline base-styles.css here */
+    /*@@BASE_STYLES@@*/
+    /* report-specific overrides (accent, hero) follow the marker;
+       the report-writer's Step 8 Bash splice replaces the marker
+       with base-styles.css verbatim */
   </style>
 </head>
 <body>
@@ -405,8 +408,9 @@ The Adversarial Pass section uses `class="stockwiz-adversarial"` on the `<div cl
 ## Disclaimer (always visible, not collapsible)
 
 ```html
-<!-- Loaded verbatim from ${CLAUDE_PLUGIN_ROOT}/skills/report-generation/assets/disclaimer.html -->
-<!-- Substitute {version}, {timestamp}, {session-id} -->
+<!-- The report-writer emits the <!--@@DISCLAIMER@@--> marker here; its Step 8
+     Bash splice replaces it with assets/disclaimer.html verbatim, substituting
+     {version}, {timestamp}, {session-id}. Rendered result: -->
 <footer class="stockwiz-disclaimer">
   <p><strong>Analytical tool, not investment advice.</strong> stockwiz is a
   research assistant that synthesizes publicly available information. Nothing
